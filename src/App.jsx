@@ -891,7 +891,7 @@ RFI:
 ❓ RFI-{ID} — {OBRA}
 - Disciplina: {Arquitectura/Estructura/MEP}
 - Consulta: {texto}
-- Impacto: {días} días | ${monto}
+- Impacto: {días} días | $\{monto\}
 - Estado: 🟡 Abierto
 [Enviar] [Añadir comentario] [Vincular a cambio] [Cerrar]
 
@@ -912,7 +912,7 @@ Dashboard:
 🏗️ Dashboard — {OBRA}
 - Avance físico: {%} | Curva S: {status}
 - RFIs abiertos: {n} | OCs pendientes: {n}
-- Certificación en curso: ${monto}
+- Certificación en curso: $\{monto\}
 - Incidencias SHyMA: {n} 🔴/{n} 🟡
 - NC Calidad: {n} abiertas
 

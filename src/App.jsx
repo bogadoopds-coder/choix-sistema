@@ -557,8 +557,41 @@ function TabSemaforo({proyecto, iccFactor, updateItem, preciosActualizados}) {
 function TabIA({proyecto, addItems}) {
   const [pliego, setPliego] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  async function handlePDF(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoadingPdf(true); setError("");
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);
+        r.onerror = () => rej(new Error("Error leyendo PDF"));
+        r.readAsDataURL(file);
+      });
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{role:"user", content:[
+            {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+            {type:"text", text:"Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios."}
+          ]}]
+        })
+      });
+      const data = await resp.json();
+      const txt = data.content?.map(c=>c.text||"").join("").trim();
+      setPliego(txt);
+    } catch(e) { setError("Error al leer PDF: "+e.message); }
+    setLoadingPdf(false);
+    e.target.value = "";
+  }
 
   async function analizarPliego() {
     if (!pliego.trim()) return;
@@ -567,7 +600,7 @@ function TabIA({proyecto, addItems}) {
     try {
       const resp = await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:1000,
@@ -612,7 +645,16 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`}]
   return (
     <div style={S.panel}>
       <div style={{fontWeight:700, color:COLORS.gold, marginBottom:"4px", fontSize:"12px"}}>🤖 ANÁLISIS DE PLIEGO CON IA</div>
-      <div style={{color:COLORS.muted, fontSize:"11px", marginBottom:"14px"}}>Pegá el texto del pliego o una descripción de los trabajos. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+      <div style={{color:COLORS.muted, fontSize:"11px", marginBottom:"10px"}}>Pegá el texto del pliego, o subí un PDF directamente. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+      
+      {/* PDF Upload */}
+      <div style={{marginBottom:"10px"}}>
+        <input ref={fileRef} type="file" accept=".pdf" style={{display:"none"}} onChange={handlePDF} />
+        <button style={{...S.btn("blue"), display:"flex", alignItems:"center", gap:"6px"}} onClick={()=>fileRef.current.click()} disabled={loadingPdf}>
+          {loadingPdf ? "⏳ Leyendo PDF..." : "📄 SUBIR PDF DEL PLIEGO"}
+        </button>
+        {pliego && <div style={{fontSize:"10px", color:COLORS.verde, marginTop:"4px"}}>✓ Texto cargado ({pliego.length} caracteres)</div>}
+      </div>
       <textarea style={{...S.input, height:"140px", resize:"vertical", lineHeight:"1.5"}}
         placeholder="Ej: Construcción de aulas modulares prefabricadas de 7x9m. Se requiere fundación corrida, estructura metálica, cerramiento perimetral con chapa sinusoidal, cubierta de chapa con aislación, instalación sanitaria completa con 2 baños, instalación eléctrica trifásica..."
         value={pliego} onChange={e=>setPliego(e.target.value)} />
@@ -1001,7 +1043,7 @@ function ChatModule({ initCmd }) {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: SYSTEM_PROMPT, messages: newMessages }),
       });
       const data = await res.json();

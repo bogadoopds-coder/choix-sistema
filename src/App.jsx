@@ -594,7 +594,7 @@ function TabIA({proyecto, addItems}) {
   }
 
   async function analizarPliego() {
-    if (!pliego.trim()) return;
+    if (!(pliego||"").trim()) return;
     setLoading(true); setError(""); setResultado(null);
     const baseResumen = BASE.slice(0,200).map(b=>`${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
     try {
@@ -1034,7 +1034,7 @@ function ChatModule({ initCmd }) {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   async function sendMessage(text) {
-    const msg = (text || input).trim();
+    const msg = ((text || input) || "").trim();
     if (!msg) return;
     setInput("");
     const newMessages = [...messages, { role: "user", content: msg }];

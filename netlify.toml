@@ -6,3 +6,11 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.anthropic.com; connect-src 'self' https://api.anthropic.com; img-src 'self' data: blob:"
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access"

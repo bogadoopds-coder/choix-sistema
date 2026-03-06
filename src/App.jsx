@@ -588,33 +588,92 @@ function TabIA({proyecto, addItems}) {
   const [error, setError] = useState("");
   const fileRef = useRef(null);
 
-  async function handlePDF(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
     setLoadingPdf(true); setError("");
+    const ext = file.name.split(".").pop().toLowerCase();
     try {
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result.split(",")[1]);
-        r.onerror = () => rej(new Error("Error leyendo PDF"));
-        r.readAsDataURL(file);
-      });
-      const resp = await fetch("/.netlify/functions/chat", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          messages: [{role:"user", content:[
-            {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
-            {type:"text", text:"Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios."}
-          ]}]
-        })
-      });
-      const data = await resp.json();
-      const txt = data.content?.map(c=>c.text||"").join("").trim();
-      setPliego(txt);
-    } catch(e) { setError("Error al leer PDF: "+e.message); }
+      if (ext === "pdf") {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = () => rej(new Error("Error leyendo PDF"));
+          r.readAsDataURL(file);
+        });
+        const resp = await fetch("/.netlify/functions/chat", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            messages: [{role:"user", content:[
+              {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+              {type:"text", text:"Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios."}
+            ]}]
+          })
+        });
+        const data = await resp.json();
+        const txt = data.content?.map(c=>c.text||"").join("").trim();
+        setPliego(txt);
+      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        let text = "";
+        wb.SheetNames.forEach(sname => {
+          text += `--- Hoja: ${sname} ---
+`;
+          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "
+";
+        });
+        setPliego(text);
+      } else if (ext === "docx") {
+        const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
+        const ab = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: ab });
+        setPliego(result.value);
+      } else {
+        const text = await file.text();
+        setPliego(text);
+      }
+    } catch(err) { setError("Error al leer archivo: " + err.message); }
     setLoadingPdf(false);
     e.target.value = "";
+  }
+
+  function importarDesdeExcel() {
+    // Parse CSV from Excel sheet and try to map to items
+    try {
+      const lines = pliego.split("
+").filter(l => l.trim());
+      const toAdd = [];
+      lines.forEach(line => {
+        const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
+        if (cols.length < 2) return;
+        // Try to detect: codigo, descripcion, um, cantidad, precio
+        const [c0, c1, c2, c3, c4] = cols;
+        const cant = parseFloat(c3) || parseFloat(c2) || 1;
+        const precio = parseFloat(c4) || parseFloat(c3) || 0;
+        if (c1 && c1.length > 2) {
+          toAdd.push({
+            codigo: c0 || "CUSTOM-IMP",
+            desc: c1,
+            um: c2 || "UN",
+            precioBase: precio,
+            precioCustom: null,
+            cantPresup: cant,
+            consumidoReal: 0,
+            esCustom: true,
+            justificacion: "Importado desde Excel"
+          });
+        }
+      });
+      if (toAdd.length > 0) {
+        addItems(toAdd);
+        setPliego(""); setResultado(null);
+      } else {
+        setError("No se pudieron detectar ítems. Asegurate que el Excel tenga columnas: Código, Descripción, UM, Cantidad, Precio");
+      }
+    } catch(e) { setError("Error al importar: " + e.message); }
   }
 
   async function analizarPliego() {
@@ -671,18 +730,23 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`}]
       
       {/* PDF Upload */}
       <div style={{marginBottom:"10px"}}>
-        <input ref={fileRef} type="file" accept=".pdf" style={{display:"none"}} onChange={handlePDF} />
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{display:"none"}} onChange={handleFile} />
         <button style={{...S.btn("blue"), display:"flex", alignItems:"center", gap:"6px"}} onClick={()=>fileRef.current.click()} disabled={loadingPdf}>
-          {loadingPdf ? "⏳ Leyendo PDF..." : "📄 SUBIR PDF DEL PLIEGO"}
+          {loadingPdf ? "⏳ Leyendo archivo..." : "📎 SUBIR PDF / EXCEL / WORD"}
         </button>
         {pliego && <div style={{fontSize:"10px", color:COLORS.verde, marginTop:"4px"}}>✓ Texto cargado ({pliego.length} caracteres)</div>}
       </div>
       <textarea style={{...S.input, height:"140px", resize:"vertical", lineHeight:"1.5"}}
         placeholder="Ej: Construcción de aulas modulares prefabricadas de 7x9m. Se requiere fundación corrida, estructura metálica, cerramiento perimetral con chapa sinusoidal, cubierta de chapa con aislación, instalación sanitaria completa con 2 baños, instalación eléctrica trifásica..."
         value={pliego} onChange={e=>setPliego(e.target.value)} />
-      <button style={{...S.btn(), marginTop:"10px"}} onClick={analizarPliego} disabled={loading||!pliego.trim()}>
-        {loading ? "Analizando..." : "ANALIZAR CON IA"}
-      </button>
+      <div style={{display:"flex", gap:"8px", marginTop:"10px", flexWrap:"wrap"}}>
+        <button style={S.btn()} onClick={analizarPliego} disabled={loading||!pliego.trim()}>
+          {loading ? "Analizando..." : "🤖 ANALIZAR CON IA"}
+        </button>
+        <button style={{...S.btn("gold")}} onClick={importarDesdeExcel} disabled={!pliego.trim()}>
+          📥 IMPORTAR ÍTEMS DIRECTO (Excel)
+        </button>
+      </div>
       {error && <div style={{color:COLORS.rojo, marginTop:"10px", fontSize:"12px"}}>{error}</div>}
 
       {resultado && (
@@ -1050,17 +1114,90 @@ function ChatModule({ initCmd }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [attachedFile, setAttachedFile] = useState(null); // {name, content, type}
+  const [loadingFile, setLoadingFile] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+  const fileRefChat = useRef(null);
+
+  async function handleFileAttach(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoadingFile(true);
+    const ext = file.name.split(".").pop().toLowerCase();
+    try {
+      if (ext === "pdf") {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+        // Send to backend to extract text
+        const resp = await fetch("/.netlify/functions/chat", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ messages: [{role:"user", content:[
+            {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+            {type:"text", text:"Extraé el texto completo de este documento. Solo el texto, sin comentarios."}
+          ]}]})
+        });
+        const data = await resp.json();
+        const txt = data.content?.map(c=>c.text||"").join("").trim();
+        setAttachedFile({ name: file.name, content: txt, type: "pdf" });
+      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        let text = "";
+        wb.SheetNames.forEach(name => {
+          const ws = wb.Sheets[name];
+          text += `--- Hoja: ${name} ---
+`;
+          text += XLSX.utils.sheet_to_csv(ws) + "
+";
+        });
+        setAttachedFile({ name: file.name, content: text, type: "excel" });
+      } else if (ext === "docx") {
+        const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
+        const ab = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: ab });
+        setAttachedFile({ name: file.name, content: result.value, type: "word" });
+      } else {
+        // Plain text
+        const text = await file.text();
+        setAttachedFile({ name: file.name, content: text, type: "text" });
+      }
+    } catch(err) {
+      setAttachedFile({ name: file.name, content: `[Error leyendo archivo: ${err.message}]`, type: "error" });
+    }
+    setLoadingFile(false);
+    e.target.value = "";
+  }
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   async function sendMessage(text) {
-    const msg = ((text || input) || "").trim();
-    if (!msg) return;
+    const msgText = ((text || input) || "").trim();
+    if (!msgText && !attachedFile) return;
     setInput("");
-    const newMessages = [...messages, { role: "user", content: msg }];
-    setMessages(newMessages);
+    
+    let userContent = msgText;
+    let displayMsg = msgText;
+    if (attachedFile) {
+      const fileNote = `[📎 ${attachedFile.name}]
+
+${attachedFile.content}
+
+`;
+      userContent = fileNote + (msgText || "Analizá este archivo y respondé en base a él.");
+      displayMsg = (msgText || "Analizá este archivo") + ` 📎 ${attachedFile.name}`;
+      setAttachedFile(null);
+    }
+
+    const newMessages = [...messages, { role: "user", content: userContent }];
+    const displayMessages = [...messages, { role: "user", content: displayMsg }];
+    setMessages(displayMessages);
     setLoading(true);
     try {
       const res = await fetch("/.netlify/functions/chat", {
@@ -1122,16 +1259,33 @@ function ChatModule({ initCmd }) {
         <div ref={bottomRef} />
       </div>
       {/* Input */}
-      <div style={{ padding: "12px 14px", borderTop: "1px solid #1e2a22", background: "#141a16", display: "flex", gap: "8px", alignItems: "flex-end" }}>
-        <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
-          placeholder="Escribí un comando o consulta... (Enter para enviar)" rows={1}
-          style={{ flex: 1, background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 14px", color: "#d8e4de", fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
-          onFocus={e => e.target.style.borderColor = TEAL}
-          onBlur={e => e.target.style.borderColor = "#2a3a30"} />
-        <button onClick={() => sendMessage()} disabled={loading || !input.trim()}
-          style={{ background: loading || !input.trim() ? "#1e2a22" : TEAL, border: "none", borderRadius: "8px", padding: "10px 16px", color: loading || !input.trim() ? "#4a6055" : "#fff", fontWeight: 700, fontSize: "0.8rem", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-          {loading ? "..." : "ENVIAR ▶"}
-        </button>
+      <div style={{ padding: "12px 14px", borderTop: "1px solid #1e2a22", background: "#141a16" }}>
+        {/* File preview */}
+        {attachedFile && (
+          <div style={{ display:"flex", alignItems:"center", gap:"8px", background:"#1e2a22", borderRadius:"6px", padding:"6px 10px", marginBottom:"8px", fontSize:"11px" }}>
+            <span style={{ color:"#1A9B7B" }}>📎</span>
+            <span style={{ color:"#d8e4de", flex:1 }}>{attachedFile.name}</span>
+            <span style={{ color:"#4a6055" }}>({attachedFile.type})</span>
+            <button onClick={() => setAttachedFile(null)} style={{ background:"none", border:"none", color:"#e05a5a", cursor:"pointer", fontSize:"14px", padding:"0" }}>×</button>
+          </div>
+        )}
+        <div style={{ display:"flex", gap:"8px", alignItems:"flex-end" }}>
+          <input ref={fileRefChat} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{display:"none"}} onChange={handleFileAttach} />
+          <button onClick={() => fileRefChat.current.click()} disabled={loadingFile}
+            title="Adjuntar PDF, Excel o Word"
+            style={{ background:"#1e2a22", border:"1px solid #2a3a30", borderRadius:"8px", padding:"10px 12px", color: loadingFile ? "#4a6055" : "#8ab8a8", cursor:"pointer", fontSize:"16px", flexShrink:0 }}>
+            {loadingFile ? "⏳" : "📎"}
+          </button>
+          <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
+            placeholder="Escribí un comando o adjuntá un archivo... (Enter para enviar)" rows={1}
+            style={{ flex: 1, background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 14px", color: "#d8e4de", fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
+            onFocus={e => e.target.style.borderColor = TEAL}
+            onBlur={e => e.target.style.borderColor = "#2a3a30"} />
+          <button onClick={() => sendMessage()} disabled={loading || (!input.trim() && !attachedFile)}
+            style={{ background: loading || (!input.trim() && !attachedFile) ? "#1e2a22" : TEAL, border: "none", borderRadius: "8px", padding: "10px 16px", color: loading || (!input.trim() && !attachedFile) ? "#4a6055" : "#fff", fontWeight: 700, fontSize: "0.8rem", cursor: loading || (!input.trim() && !attachedFile) ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            {loading ? "..." : "ENVIAR ▶"}
+          </button>
+        </div>
       </div>
     </div>
   );

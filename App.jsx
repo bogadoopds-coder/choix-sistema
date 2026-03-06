@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "./firebase";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHOIX CONSTRUCTORA — SISTEMA INTEGRADO
@@ -20,6 +22,30 @@ const RENDIMIENTOS = {
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+const storage = {
+  async get(key) {
+    try {
+      const docRef = doc(db, "sistema", key);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return { value: docSnap.data().datosJSON };
+      }
+      return { value: null };
+    } catch (error) {
+      console.error("Error leyendo de Firebase:", error);
+      return { value: null };
+    }
+  },
+  async set(key, value) {
+    try {
+      const docRef = doc(db, "sistema", key);
+      await setDoc(docRef, { datosJSON: value });
+    } catch (error) {
+      console.error("Error guardando en Firebase:", error);
+    }
+  }
+};
 const ars = n => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(n);
 const uid = () => Math.random().toString(36).slice(2,9);
 const today = () => new Date().toISOString().slice(0,10);
@@ -77,11 +103,11 @@ function PresupuestosModule() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await window.storage.get("choix_proyectos");
+        const r = await storage.get("choix_proyectos");
         if (r?.value) setProyectos(JSON.parse(r.value));
       } catch {}
       try {
-        const r2 = await window.storage.get("choix_precios");
+        const r2 = await storage.get("choix_precios");
         if (r2?.value) setPreciosActualizados(JSON.parse(r2.value));
       } catch {}
       setStorageReady(true);
@@ -92,7 +118,7 @@ function PresupuestosModule() {
   useEffect(() => {
     if (!storageReady) return;
     (async () => {
-      try { await window.storage.set("choix_proyectos", JSON.stringify(proyectos)); } catch {}
+      try { await storage.set("choix_proyectos", JSON.stringify(proyectos)); } catch {}
     })();
   }, [proyectos, storageReady]);
 
@@ -100,7 +126,7 @@ function PresupuestosModule() {
   useEffect(() => {
     if (!storageReady) return;
     (async () => {
-      try { await window.storage.set("choix_precios", JSON.stringify(preciosActualizados)); } catch {}
+      try { await storage.set("choix_precios", JSON.stringify(preciosActualizados)); } catch {}
     })();
   }, [preciosActualizados, storageReady]);
 
@@ -557,20 +583,108 @@ function TabSemaforo({proyecto, iccFactor, updateItem, preciosActualizados}) {
 function TabIA({proyecto, addItems}) {
   const [pliego, setPliego] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoadingPdf(true); setError("");
+    const ext = file.name.split(".").pop().toLowerCase();
+    try {
+      if (ext === "pdf") {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = () => rej(new Error("Error leyendo PDF"));
+          r.readAsDataURL(file);
+        });
+        const resp = await fetch("/.netlify/functions/chat", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            messages: [{role:"user", content:[
+              {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+              {type:"text", text:"Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios."}
+            ]}]
+          })
+        });
+        const data = await resp.json();
+        const txt = data.content?.map(c=>c.text||"").join("").trim();
+        setPliego(txt);
+      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        let text = "";
+        wb.SheetNames.forEach(sname => {
+          text += `--- Hoja: ${sname} ---
+`;
+          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "
+";
+        });
+        setPliego(text);
+      } else if (ext === "docx") {
+        const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
+        const ab = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: ab });
+        setPliego(result.value);
+      } else {
+        const text = await file.text();
+        setPliego(text);
+      }
+    } catch(err) { setError("Error al leer archivo: " + err.message); }
+    setLoadingPdf(false);
+    e.target.value = "";
+  }
+
+  function importarDesdeExcel() {
+    // Parse CSV from Excel sheet and try to map to items
+    try {
+      const lines = pliego.split("
+").filter(l => l.trim());
+      const toAdd = [];
+      lines.forEach(line => {
+        const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
+        if (cols.length < 2) return;
+        // Try to detect: codigo, descripcion, um, cantidad, precio
+        const [c0, c1, c2, c3, c4] = cols;
+        const cant = parseFloat(c3) || parseFloat(c2) || 1;
+        const precio = parseFloat(c4) || parseFloat(c3) || 0;
+        if (c1 && c1.length > 2) {
+          toAdd.push({
+            codigo: c0 || "CUSTOM-IMP",
+            desc: c1,
+            um: c2 || "UN",
+            precioBase: precio,
+            precioCustom: null,
+            cantPresup: cant,
+            consumidoReal: 0,
+            esCustom: true,
+            justificacion: "Importado desde Excel"
+          });
+        }
+      });
+      if (toAdd.length > 0) {
+        addItems(toAdd);
+        setPliego(""); setResultado(null);
+      } else {
+        setError("No se pudieron detectar ítems. Asegurate que el Excel tenga columnas: Código, Descripción, UM, Cantidad, Precio");
+      }
+    } catch(e) { setError("Error al importar: " + e.message); }
+  }
 
   async function analizarPliego() {
-    if (!pliego.trim()) return;
+    if (!(pliego||"").trim()) return;
     setLoading(true); setError(""); setResultado(null);
     const baseResumen = BASE.slice(0,200).map(b=>`${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{
+      const resp = await fetch("/.netlify/functions/chat",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
           messages:[{role:"user",content:`Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y determiná qué materiales son necesarios con sus cantidades estimadas.
 
 Obra: ${proyecto.nombre} (${proyecto.codigo})
@@ -612,13 +726,27 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`}]
   return (
     <div style={S.panel}>
       <div style={{fontWeight:700, color:COLORS.gold, marginBottom:"4px", fontSize:"12px"}}>🤖 ANÁLISIS DE PLIEGO CON IA</div>
-      <div style={{color:COLORS.muted, fontSize:"11px", marginBottom:"14px"}}>Pegá el texto del pliego o una descripción de los trabajos. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+      <div style={{color:COLORS.muted, fontSize:"11px", marginBottom:"10px"}}>Pegá el texto del pliego, o subí un PDF directamente. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+      
+      {/* PDF Upload */}
+      <div style={{marginBottom:"10px"}}>
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{display:"none"}} onChange={handleFile} />
+        <button style={{...S.btn("blue"), display:"flex", alignItems:"center", gap:"6px"}} onClick={()=>fileRef.current.click()} disabled={loadingPdf}>
+          {loadingPdf ? "⏳ Leyendo archivo..." : "📎 SUBIR PDF / EXCEL / WORD"}
+        </button>
+        {pliego && <div style={{fontSize:"10px", color:COLORS.verde, marginTop:"4px"}}>✓ Texto cargado ({pliego.length} caracteres)</div>}
+      </div>
       <textarea style={{...S.input, height:"140px", resize:"vertical", lineHeight:"1.5"}}
         placeholder="Ej: Construcción de aulas modulares prefabricadas de 7x9m. Se requiere fundación corrida, estructura metálica, cerramiento perimetral con chapa sinusoidal, cubierta de chapa con aislación, instalación sanitaria completa con 2 baños, instalación eléctrica trifásica..."
         value={pliego} onChange={e=>setPliego(e.target.value)} />
-      <button style={{...S.btn(), marginTop:"10px"}} onClick={analizarPliego} disabled={loading||!pliego.trim()}>
-        {loading ? "Analizando..." : "ANALIZAR CON IA"}
-      </button>
+      <div style={{display:"flex", gap:"8px", marginTop:"10px", flexWrap:"wrap"}}>
+        <button style={S.btn()} onClick={analizarPliego} disabled={loading||!pliego.trim()}>
+          {loading ? "Analizando..." : "🤖 ANALIZAR CON IA"}
+        </button>
+        <button style={{...S.btn("gold")}} onClick={importarDesdeExcel} disabled={!pliego.trim()}>
+          📥 IMPORTAR ÍTEMS DIRECTO (Excel)
+        </button>
+      </div>
       {error && <div style={{color:COLORS.rojo, marginTop:"10px", fontSize:"12px"}}>{error}</div>}
 
       {resultado && (
@@ -891,7 +1019,7 @@ RFI:
 ❓ RFI-{ID} — {OBRA}
 - Disciplina: {Arquitectura/Estructura/MEP}
 - Consulta: {texto}
-- Impacto: {días} días | ${monto}
+- Impacto: {días} días | $\{monto\}
 - Estado: 🟡 Abierto
 [Enviar] [Añadir comentario] [Vincular a cambio] [Cerrar]
 
@@ -912,7 +1040,7 @@ Dashboard:
 🏗️ Dashboard — {OBRA}
 - Avance físico: {%} | Curva S: {status}
 - RFIs abiertos: {n} | OCs pendientes: {n}
-- Certificación en curso: ${monto}
+- Certificación en curso: $\{monto\}
 - Incidencias SHyMA: {n} 🔴/{n} 🟡
 - NC Calidad: {n} abiertas
 
@@ -986,26 +1114,99 @@ function ChatModule({ initCmd }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [attachedFile, setAttachedFile] = useState(null); // {name, content, type}
+  const [loadingFile, setLoadingFile] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+  const fileRefChat = useRef(null);
+
+  async function handleFileAttach(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoadingFile(true);
+    const ext = file.name.split(".").pop().toLowerCase();
+    try {
+      if (ext === "pdf") {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+        // Send to backend to extract text
+        const resp = await fetch("/.netlify/functions/chat", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ messages: [{role:"user", content:[
+            {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+            {type:"text", text:"Extraé el texto completo de este documento. Solo el texto, sin comentarios."}
+          ]}]})
+        });
+        const data = await resp.json();
+        const txt = data.content?.map(c=>c.text||"").join("").trim();
+        setAttachedFile({ name: file.name, content: txt, type: "pdf" });
+      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        let text = "";
+        wb.SheetNames.forEach(name => {
+          const ws = wb.Sheets[name];
+          text += `--- Hoja: ${name} ---
+`;
+          text += XLSX.utils.sheet_to_csv(ws) + "
+";
+        });
+        setAttachedFile({ name: file.name, content: text, type: "excel" });
+      } else if (ext === "docx") {
+        const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
+        const ab = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: ab });
+        setAttachedFile({ name: file.name, content: result.value, type: "word" });
+      } else {
+        // Plain text
+        const text = await file.text();
+        setAttachedFile({ name: file.name, content: text, type: "text" });
+      }
+    } catch(err) {
+      setAttachedFile({ name: file.name, content: `[Error leyendo archivo: ${err.message}]`, type: "error" });
+    }
+    setLoadingFile(false);
+    e.target.value = "";
+  }
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   async function sendMessage(text) {
-    const msg = (text || input).trim();
-    if (!msg) return;
+    const msgText = ((text || input) || "").trim();
+    if (!msgText && !attachedFile) return;
     setInput("");
-    const newMessages = [...messages, { role: "user", content: msg }];
-    setMessages(newMessages);
+    
+    let userContent = msgText;
+    let displayMsg = msgText;
+    if (attachedFile) {
+      const fileNote = `[📎 ${attachedFile.name}]
+
+${attachedFile.content}
+
+`;
+      userContent = fileNote + (msgText || "Analizá este archivo y respondé en base a él.");
+      displayMsg = (msgText || "Analizá este archivo") + ` 📎 ${attachedFile.name}`;
+      setAttachedFile(null);
+    }
+
+    const newMessages = [...messages, { role: "user", content: userContent }];
+    const displayMessages = [...messages, { role: "user", content: displayMsg }];
+    setMessages(displayMessages);
     setLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: SYSTEM_PROMPT, messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, system: SYSTEM_PROMPT }),
       });
       const data = await res.json();
-      const reply = data.content?.map(c => c.text || "").join("") || "Error en la respuesta.";
+      const reply = data.content?.map(c => c.text || "").join("") || data.reply || "Error en la respuesta.";
       setMessages(m => [...m, { role: "assistant", content: reply }]);
     } catch (e) { setMessages(m => [...m, { role: "assistant", content: "⚠️ Error de conexión." }]); }
     setLoading(false);
@@ -1058,16 +1259,33 @@ function ChatModule({ initCmd }) {
         <div ref={bottomRef} />
       </div>
       {/* Input */}
-      <div style={{ padding: "12px 14px", borderTop: "1px solid #1e2a22", background: "#141a16", display: "flex", gap: "8px", alignItems: "flex-end" }}>
-        <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
-          placeholder="Escribí un comando o consulta... (Enter para enviar)" rows={1}
-          style={{ flex: 1, background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 14px", color: "#d8e4de", fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
-          onFocus={e => e.target.style.borderColor = TEAL}
-          onBlur={e => e.target.style.borderColor = "#2a3a30"} />
-        <button onClick={() => sendMessage()} disabled={loading || !input.trim()}
-          style={{ background: loading || !input.trim() ? "#1e2a22" : TEAL, border: "none", borderRadius: "8px", padding: "10px 16px", color: loading || !input.trim() ? "#4a6055" : "#fff", fontWeight: 700, fontSize: "0.8rem", cursor: loading || !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-          {loading ? "..." : "ENVIAR ▶"}
-        </button>
+      <div style={{ padding: "12px 14px", borderTop: "1px solid #1e2a22", background: "#141a16" }}>
+        {/* File preview */}
+        {attachedFile && (
+          <div style={{ display:"flex", alignItems:"center", gap:"8px", background:"#1e2a22", borderRadius:"6px", padding:"6px 10px", marginBottom:"8px", fontSize:"11px" }}>
+            <span style={{ color:"#1A9B7B" }}>📎</span>
+            <span style={{ color:"#d8e4de", flex:1 }}>{attachedFile.name}</span>
+            <span style={{ color:"#4a6055" }}>({attachedFile.type})</span>
+            <button onClick={() => setAttachedFile(null)} style={{ background:"none", border:"none", color:"#e05a5a", cursor:"pointer", fontSize:"14px", padding:"0" }}>×</button>
+          </div>
+        )}
+        <div style={{ display:"flex", gap:"8px", alignItems:"flex-end" }}>
+          <input ref={fileRefChat} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{display:"none"}} onChange={handleFileAttach} />
+          <button onClick={() => fileRefChat.current.click()} disabled={loadingFile}
+            title="Adjuntar PDF, Excel o Word"
+            style={{ background:"#1e2a22", border:"1px solid #2a3a30", borderRadius:"8px", padding:"10px 12px", color: loadingFile ? "#4a6055" : "#8ab8a8", cursor:"pointer", fontSize:"16px", flexShrink:0 }}>
+            {loadingFile ? "⏳" : "📎"}
+          </button>
+          <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
+            placeholder="Escribí un comando o adjuntá un archivo... (Enter para enviar)" rows={1}
+            style={{ flex: 1, background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 14px", color: "#d8e4de", fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
+            onFocus={e => e.target.style.borderColor = TEAL}
+            onBlur={e => e.target.style.borderColor = "#2a3a30"} />
+          <button onClick={() => sendMessage()} disabled={loading || (!input.trim() && !attachedFile)}
+            style={{ background: loading || (!input.trim() && !attachedFile) ? "#1e2a22" : TEAL, border: "none", borderRadius: "8px", padding: "10px 16px", color: loading || (!input.trim() && !attachedFile) ? "#4a6055" : "#fff", fontWeight: 700, fontSize: "0.8rem", cursor: loading || (!input.trim() && !attachedFile) ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            {loading ? "..." : "ENVIAR ▶"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1084,19 +1302,103 @@ function PresupuestosModulePrecios() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     (async () => {
-      try { const r = await window.storage.get("choix_precios"); if (r?.value) setPa(JSON.parse(r.value)); } catch {}
+      try { const r = await storage.get("choix_precios"); if (r?.value) setPa(JSON.parse(r.value)); } catch {}
       setReady(true);
     })();
   }, []);
   useEffect(() => {
     if (!ready) return;
-    (async () => { try { await window.storage.set("choix_precios", JSON.stringify(pa)); } catch {} })();
+    (async () => { try { await storage.set("choix_precios", JSON.stringify(pa)); } catch {} })();
   }, [pa, ready]);
   if (!ready) return <div style={{padding:"40px", textAlign:"center", color:"#4a6055"}}>Cargando...</div>;
   return <div style={{height:"100%", overflow:"auto", padding:"16px", background:COLORS.bg}}><GestorPrecios preciosActualizados={pa} setPreciosActualizados={setPa} /></div>;
 }
 
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function DashboardModule() {
+  const [proyectos, setProyectos] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await storage.get("choix_proyectos");
+        if (r?.value) setProyectos(JSON.parse(r.value));
+      } catch {}
+    })();
+  }, []);
+
+  const obras = proyectos.filter(p => p.activo !== false);
+  const totalPresupuestado = obras.reduce((sum, p) => {
+    const items = p.items || [];
+    return sum + items.reduce((s, it) => s + ((it.precioCustom ?? it.precioBase ?? 0) * (it.cantPresup ?? 0)) * (1 + (p.icc || 0) / 100), 0);
+  }, 0);
+
+  const alertasRojas = obras.flatMap(p => (p.items || []).filter(it => {
+    const consumido = it.consumidoReal ?? 0;
+    const presup = it.cantPresup ?? 0;
+    return presup > 0 && consumido / presup > 0.9;
+  }).map(it => ({ ...it, obra: p.nombre })));
+
+  const top5obras = [...obras].sort((a, b) => {
+    const tot = p => (p.items||[]).reduce((s,it) => s + ((it.precioCustom??it.precioBase??0)*(it.cantPresup??0))*(1+(p.icc||0)/100), 0);
+    return tot(b) - tot(a);
+  }).slice(0, 5);
+
+  const TEAL = "#1A9B7B"; const GOLD = "#c8a84b"; const ROJO = "#e05a5a";
+  const card = { background:"#141a16", border:"1px solid #1e2a22", borderRadius:"10px", padding:"16px", marginBottom:"12px" };
+
+  return (
+    <div style={{ padding:"20px", overflowY:"auto", height:"100%", background:"#0f1210" }}>
+      <div style={{ fontWeight:800, fontSize:"18px", color:"#d8e4de", marginBottom:"16px" }}>📊 Dashboard General</div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"12px", marginBottom:"16px" }}>
+        {[
+          { label:"Obras activas", value: obras.length, color: TEAL },
+          { label:"Monto total presup.", value: new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(totalPresupuestado), color: GOLD },
+          { label:"Alertas semáforo 🔴", value: alertasRojas.length, color: ROJO },
+        ].map(k => (
+          <div key={k.label} style={card}>
+            <div style={{ fontSize:"11px", color:"#4a6055", marginBottom:"6px" }}>{k.label}</div>
+            <div style={{ fontSize:"22px", fontWeight:800, color:k.color }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Top 5 obras */}
+      <div style={card}>
+        <div style={{ fontWeight:700, color:GOLD, fontSize:"12px", marginBottom:"10px" }}>🏆 Top 5 obras por presupuesto</div>
+        {top5obras.length === 0 ? <div style={{ color:"#4a6055", fontSize:"12px" }}>Sin datos</div> :
+          top5obras.map((p,i) => {
+            const tot = (p.items||[]).reduce((s,it) => s + ((it.precioCustom??it.precioBase??0)*(it.cantPresup??0))*(1+(p.icc||0)/100), 0);
+            return (
+              <div key={p.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #1e2a22", fontSize:"12px" }}>
+                <span style={{ color:"#d8e4de" }}>#{i+1} {p.nombre}</span>
+                <span style={{ color:GOLD, fontWeight:700 }}>{new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(tot)}</span>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      {/* Top 5 items alerta roja */}
+      <div style={card}>
+        <div style={{ fontWeight:700, color:ROJO, fontSize:"12px", marginBottom:"10px" }}>🔴 Top 5 ítems con alerta roja</div>
+        {alertasRojas.length === 0 ? <div style={{ color:"#4a6055", fontSize:"12px" }}>Sin alertas 🎉</div> :
+          alertasRojas.slice(0,5).map((it,i) => (
+            <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #1e2a22", fontSize:"12px" }}>
+              <span style={{ color:"#d8e4de" }}>{it.desc}</span>
+              <span style={{ color:ROJO, fontWeight:700 }}>{it.obra}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
 const NAV_ITEMS = [
+  { id: "dashboard",   icon: "📊", label: "Dashboard",       sub: "Resumen general" },
   { id: "chat",        icon: "🤖", label: "Agente IA",      sub: "Asistente" },
   { id: "presupuesto", icon: "📋", label: "Presupuestos",   sub: "Obras + precios" },
   { id: "parte",       icon: "🧾", label: "Parte Diario",   sub: "Registro diario" },
@@ -1212,6 +1514,7 @@ export default function ChoixIntegrado() {
 
         {/* Module content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
+          {activeModule === "dashboard" && <DashboardModule />}
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule />}
           {activeModule === "precios" && <PresupuestosModulePrecios />}

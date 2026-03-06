@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "./firebase";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHOIX CONSTRUCTORA — SISTEMA INTEGRADO
@@ -20,6 +22,30 @@ const RENDIMIENTOS = {
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+const storage = {
+  async get(key) {
+    try {
+      const docRef = doc(db, "sistema", key);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return { value: docSnap.data().datosJSON };
+      }
+      return { value: null };
+    } catch (error) {
+      console.error("Error leyendo de Firebase:", error);
+      return { value: null };
+    }
+  },
+  async set(key, value) {
+    try {
+      const docRef = doc(db, "sistema", key);
+      await setDoc(docRef, { datosJSON: value });
+    } catch (error) {
+      console.error("Error guardando en Firebase:", error);
+    }
+  }
+};
 const ars = n => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(n);
 const uid = () => Math.random().toString(36).slice(2,9);
 const today = () => new Date().toISOString().slice(0,10);
@@ -77,11 +103,11 @@ function PresupuestosModule() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await window.storage.get("choix_proyectos");
+        const r = await storage.get("choix_proyectos");
         if (r?.value) setProyectos(JSON.parse(r.value));
       } catch {}
       try {
-        const r2 = await window.storage.get("choix_precios");
+        const r2 = await storage.get("choix_precios");
         if (r2?.value) setPreciosActualizados(JSON.parse(r2.value));
       } catch {}
       setStorageReady(true);
@@ -92,7 +118,7 @@ function PresupuestosModule() {
   useEffect(() => {
     if (!storageReady) return;
     (async () => {
-      try { await window.storage.set("choix_proyectos", JSON.stringify(proyectos)); } catch {}
+      try { await storage.set("choix_proyectos", JSON.stringify(proyectos)); } catch {}
     })();
   }, [proyectos, storageReady]);
 
@@ -100,7 +126,7 @@ function PresupuestosModule() {
   useEffect(() => {
     if (!storageReady) return;
     (async () => {
-      try { await window.storage.set("choix_precios", JSON.stringify(preciosActualizados)); } catch {}
+      try { await storage.set("choix_precios", JSON.stringify(preciosActualizados)); } catch {}
     })();
   }, [preciosActualizados, storageReady]);
 
@@ -573,9 +599,9 @@ function TabIA({proyecto, addItems}) {
         r.onerror = () => rej(new Error("Error leyendo PDF"));
         r.readAsDataURL(file);
       });
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      const resp = await fetch("/api/choix-agent", {
         method: "POST",
-        headers: {"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true","x-api-key":import.meta.env.VITE_ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
+        headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
@@ -598,9 +624,9 @@ function TabIA({proyecto, addItems}) {
     setLoading(true); setError(""); setResultado(null);
     const baseResumen = BASE.slice(0,200).map(b=>`${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{
+      const resp = await fetch("/api/choix-agent",{
         method:"POST",
-        headers:{"Content-Type":"application/json","anthropic-dangerous-direct-browser-access":"true","x-api-key":import.meta.env.VITE_ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:1000,
@@ -1041,9 +1067,9 @@ function ChatModule({ initCmd }) {
     setMessages(newMessages);
     setLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/choix-agent", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "anthropic-dangerous-direct-browser-access": "true", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: SYSTEM_PROMPT, messages: newMessages }),
       });
       const data = await res.json();
@@ -1126,19 +1152,103 @@ function PresupuestosModulePrecios() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     (async () => {
-      try { const r = await window.storage.get("choix_precios"); if (r?.value) setPa(JSON.parse(r.value)); } catch {}
+      try { const r = await storage.get("choix_precios"); if (r?.value) setPa(JSON.parse(r.value)); } catch {}
       setReady(true);
     })();
   }, []);
   useEffect(() => {
     if (!ready) return;
-    (async () => { try { await window.storage.set("choix_precios", JSON.stringify(pa)); } catch {} })();
+    (async () => { try { await storage.set("choix_precios", JSON.stringify(pa)); } catch {} })();
   }, [pa, ready]);
   if (!ready) return <div style={{padding:"40px", textAlign:"center", color:"#4a6055"}}>Cargando...</div>;
   return <div style={{height:"100%", overflow:"auto", padding:"16px", background:COLORS.bg}}><GestorPrecios preciosActualizados={pa} setPreciosActualizados={setPa} /></div>;
 }
 
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function DashboardModule() {
+  const [proyectos, setProyectos] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await storage.get("choix_proyectos");
+        if (r?.value) setProyectos(JSON.parse(r.value));
+      } catch {}
+    })();
+  }, []);
+
+  const obras = proyectos.filter(p => p.activo !== false);
+  const totalPresupuestado = obras.reduce((sum, p) => {
+    const items = p.items || [];
+    return sum + items.reduce((s, it) => s + ((it.precioCustom ?? it.precioBase ?? 0) * (it.cantPresup ?? 0)) * (1 + (p.icc || 0) / 100), 0);
+  }, 0);
+
+  const alertasRojas = obras.flatMap(p => (p.items || []).filter(it => {
+    const consumido = it.consumidoReal ?? 0;
+    const presup = it.cantPresup ?? 0;
+    return presup > 0 && consumido / presup > 0.9;
+  }).map(it => ({ ...it, obra: p.nombre })));
+
+  const top5obras = [...obras].sort((a, b) => {
+    const tot = p => (p.items||[]).reduce((s,it) => s + ((it.precioCustom??it.precioBase??0)*(it.cantPresup??0))*(1+(p.icc||0)/100), 0);
+    return tot(b) - tot(a);
+  }).slice(0, 5);
+
+  const TEAL = "#1A9B7B"; const GOLD = "#c8a84b"; const ROJO = "#e05a5a";
+  const card = { background:"#141a16", border:"1px solid #1e2a22", borderRadius:"10px", padding:"16px", marginBottom:"12px" };
+
+  return (
+    <div style={{ padding:"20px", overflowY:"auto", height:"100%", background:"#0f1210" }}>
+      <div style={{ fontWeight:800, fontSize:"18px", color:"#d8e4de", marginBottom:"16px" }}>📊 Dashboard General</div>
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"12px", marginBottom:"16px" }}>
+        {[
+          { label:"Obras activas", value: obras.length, color: TEAL },
+          { label:"Monto total presup.", value: new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(totalPresupuestado), color: GOLD },
+          { label:"Alertas semáforo 🔴", value: alertasRojas.length, color: ROJO },
+        ].map(k => (
+          <div key={k.label} style={card}>
+            <div style={{ fontSize:"11px", color:"#4a6055", marginBottom:"6px" }}>{k.label}</div>
+            <div style={{ fontSize:"22px", fontWeight:800, color:k.color }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Top 5 obras */}
+      <div style={card}>
+        <div style={{ fontWeight:700, color:GOLD, fontSize:"12px", marginBottom:"10px" }}>🏆 Top 5 obras por presupuesto</div>
+        {top5obras.length === 0 ? <div style={{ color:"#4a6055", fontSize:"12px" }}>Sin datos</div> :
+          top5obras.map((p,i) => {
+            const tot = (p.items||[]).reduce((s,it) => s + ((it.precioCustom??it.precioBase??0)*(it.cantPresup??0))*(1+(p.icc||0)/100), 0);
+            return (
+              <div key={p.id} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #1e2a22", fontSize:"12px" }}>
+                <span style={{ color:"#d8e4de" }}>#{i+1} {p.nombre}</span>
+                <span style={{ color:GOLD, fontWeight:700 }}>{new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(tot)}</span>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      {/* Top 5 items alerta roja */}
+      <div style={card}>
+        <div style={{ fontWeight:700, color:ROJO, fontSize:"12px", marginBottom:"10px" }}>🔴 Top 5 ítems con alerta roja</div>
+        {alertasRojas.length === 0 ? <div style={{ color:"#4a6055", fontSize:"12px" }}>Sin alertas 🎉</div> :
+          alertasRojas.slice(0,5).map((it,i) => (
+            <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #1e2a22", fontSize:"12px" }}>
+              <span style={{ color:"#d8e4de" }}>{it.desc}</span>
+              <span style={{ color:ROJO, fontWeight:700 }}>{it.obra}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
 const NAV_ITEMS = [
+  { id: "dashboard",   icon: "📊", label: "Dashboard",       sub: "Resumen general" },
   { id: "chat",        icon: "🤖", label: "Agente IA",      sub: "Asistente" },
   { id: "presupuesto", icon: "📋", label: "Presupuestos",   sub: "Obras + precios" },
   { id: "parte",       icon: "🧾", label: "Parte Diario",   sub: "Registro diario" },
@@ -1254,6 +1364,7 @@ export default function ChoixIntegrado() {
 
         {/* Module content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
+          {activeModule === "dashboard" && <DashboardModule />}
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule />}
           {activeModule === "precios" && <PresupuestosModulePrecios />}

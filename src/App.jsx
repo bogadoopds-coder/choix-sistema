@@ -599,12 +599,10 @@ function TabIA({proyecto, addItems}) {
         r.onerror = () => rej(new Error("Error leyendo PDF"));
         r.readAsDataURL(file);
       });
-      const resp = await fetch("/api/choix-agent", {
+      const resp = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
           messages: [{role:"user", content:[
             {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
             {type:"text", text:"Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios."}
@@ -624,12 +622,10 @@ function TabIA({proyecto, addItems}) {
     setLoading(true); setError(""); setResultado(null);
     const baseResumen = BASE.slice(0,200).map(b=>`${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
     try {
-      const resp = await fetch("/api/choix-agent",{
+      const resp = await fetch("/.netlify/functions/chat",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
           messages:[{role:"user",content:`Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y determiná qué materiales son necesarios con sus cantidades estimadas.
 
 Obra: ${proyecto.nombre} (${proyecto.codigo})
@@ -1067,13 +1063,13 @@ function ChatModule({ initCmd }) {
     setMessages(newMessages);
     setLoading(true);
     try {
-      const res = await fetch("/api/choix-agent", {
+      const res = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: SYSTEM_PROMPT, messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, system: SYSTEM_PROMPT }),
       });
       const data = await res.json();
-      const reply = data.content?.map(c => c.text || "").join("") || "Error en la respuesta.";
+      const reply = data.content?.map(c => c.text || "").join("") || data.reply || "Error en la respuesta.";
       setMessages(m => [...m, { role: "assistant", content: reply }]);
     } catch (e) { setMessages(m => [...m, { role: "assistant", content: "⚠️ Error de conexión." }]); }
     setLoading(false);

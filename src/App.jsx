@@ -620,10 +620,10 @@ function TabIA({proyecto, addItems}) {
         const wb = XLSX.read(ab, { type: "array" });
         let text = "";
         wb.SheetNames.forEach(sname => {
-          text += `--- Hoja: ${sname} ---
-`;
-          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "
-";
+          text += "--- Hoja: " + sname + " ---\n";
+
+          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "\n";
+
         });
         setPliego(text);
       } else if (ext === "docx") {
@@ -1152,10 +1152,10 @@ function ChatModule({ initCmd }) {
         let text = "";
         wb.SheetNames.forEach(name => {
           const ws = wb.Sheets[name];
-          text += `--- Hoja: ${name} ---
-`;
-          text += XLSX.utils.sheet_to_csv(ws) + "
-";
+          text += "--- Hoja: " + name + " ---\n";
+
+          text += XLSX.utils.sheet_to_csv(ws) + "\n";
+
         });
         setAttachedFile({ name: file.name, content: text, type: "excel" });
       } else if (ext === "docx") {

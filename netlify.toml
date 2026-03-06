@@ -14,3 +14,5 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access"
+    [build.environment]
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"

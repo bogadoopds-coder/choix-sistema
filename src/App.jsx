@@ -643,8 +643,8 @@ function TabIA({proyecto, addItems}) {
   function importarDesdeExcel() {
     // Parse CSV from Excel sheet and try to map to items
     try {
-      const lines = pliego.split("
-").filter(l => l.trim());
+      const lines = pliego.split("\n").filter(l => l.trim());
+
       const toAdd = [];
       lines.forEach(line => {
         const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());

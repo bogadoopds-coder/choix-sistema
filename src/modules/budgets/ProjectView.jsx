@@ -1,0 +1,664 @@
+import { useState, useMemo, useRef } from "react";
+import { ars } from "../../utils/format";
+import { uid } from "../../utils/id";
+import { precioVigente, semaforo } from "../../utils/budgets";
+import { COLORS, S } from "../../styles/theme";
+import { sendChat } from "../../services/ai/chatClient";
+
+// ─── SELECTOR BASE ────────────────────────────────────────────────────────────
+function SelectorBase({ BASE, onAdd, existentes }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(new Set());
+
+  const results = useMemo(() => {
+    if (q.length < 2) return [];
+    return BASE.filter((b) => b.desc.toLowerCase().includes(q.toLowerCase()) || b.codigo.includes(q)).slice(0, 40);
+  }, [q, BASE]);
+
+  function toggle(codigo) {
+    setSel((s) => {
+      const ns = new Set(s);
+      ns.has(codigo) ? ns.delete(codigo) : ns.add(codigo);
+      return ns;
+    });
+  }
+
+  function confirmar() {
+    const items = BASE.filter((b) => sel.has(b.codigo)).map((b) => ({
+      codigo: b.codigo,
+      desc: b.desc,
+      um: b.um,
+      precioBase: b.precio,
+      precioCustom: null,
+      cantPresup: 1,
+      consumidoReal: 0,
+      esCustom: false,
+    }));
+    onAdd(items);
+  }
+
+  return (
+    <div style={{ background: COLORS.subtle, borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px", alignItems: "center" }}>
+        <input style={{ ...S.input, maxWidth: "320px" }} placeholder="Buscar en base (948 ítems)..." value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        {sel.size > 0 && (
+          <button style={S.btn("gold", true)} onClick={confirmar}>
+            Agregar {sel.size} ítem{sel.size !== 1 ? "s" : ""}
+          </button>
+        )}
+      </div>
+      <div style={{ maxHeight: "260px", overflowY: "auto" }}>
+        {results.map((b) => {
+          const ya = existentes.includes(b.codigo);
+          const checked = sel.has(b.codigo);
+          return (
+            <div
+              key={b.codigo}
+              onClick={() => !ya && toggle(b.codigo)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "6px 8px",
+                borderRadius: "5px",
+                cursor: ya ? "default" : "pointer",
+                background: checked ? COLORS.goldDim : "transparent",
+                opacity: ya ? 0.4 : 1,
+                marginBottom: "2px",
+              }}
+            >
+              <input type="checkbox" checked={checked || ya} readOnly style={{ accentColor: COLORS.gold }} />
+              <span style={{ color: COLORS.muted, fontSize: "10px", minWidth: "80px" }}>{b.codigo}</span>
+              <span style={{ flex: 1, fontSize: "12px" }}>{b.desc}</span>
+              <span style={{ color: COLORS.muted, fontSize: "10px" }}>{b.um}</span>
+              <span style={{ color: COLORS.gold, fontSize: "11px", fontWeight: 700, minWidth: "90px", textAlign: "right" }}>{ars(b.precio)}</span>
+              {ya && <span style={S.tag(COLORS.muted)}>YA</span>}
+            </div>
+          );
+        })}
+        {q.length >= 2 && results.length === 0 && <div style={{ color: COLORS.muted, padding: "12px", textAlign: "center" }}>Sin resultados</div>}
+        {q.length < 2 && <div style={{ color: COLORS.muted, padding: "12px", textAlign: "center", fontSize: "11px" }}>Escribí al menos 2 caracteres para buscar</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB PRESUPUESTO ──────────────────────────────────────────────────────────
+function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem, preciosActualizados, BASE }) {
+  const [search, setSearch] = useState("");
+  const [showSelector, setShowSelector] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customItem, setCustomItem] = useState({ desc: "", um: "UN", cantPresup: "1", precioCustom: "" });
+
+  const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
+
+  function addCustom() {
+    if (!customItem.desc) return;
+    addItems([
+      {
+        codigo: "CUSTOM-" + uid(),
+        desc: customItem.desc,
+        um: customItem.um,
+        precioBase: 0,
+        precioCustom: parseFloat(customItem.precioCustom) || 0,
+        cantPresup: parseFloat(customItem.cantPresup) || 1,
+        consumidoReal: 0,
+        esCustom: true,
+      },
+    ]);
+    setCustomItem({ desc: "", um: "UN", cantPresup: "1", precioCustom: "" });
+    setShowCustom(false);
+  }
+
+  const filtered = proyecto.items.filter((i) => i.desc.toLowerCase().includes(search.toLowerCase()) || i.codigo.includes(search));
+
+  return (
+    <div style={{ ...S.panel }}>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
+        <input style={{ ...S.input, maxWidth: "280px" }} placeholder="Buscar ítem..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <button style={S.btn("gold", true)} onClick={() => setShowSelector(!showSelector)}>
+          + DE BASE
+        </button>
+        <button style={S.btn("blue", true)} onClick={() => setShowCustom(!showCustom)}>
+          + ÍTEM CUSTOM
+        </button>
+        <span style={{ marginLeft: "auto", fontWeight: 700, color: COLORS.gold, fontSize: "14px" }}>{ars(total)}</span>
+      </div>
+
+      {showSelector && <SelectorBase BASE={BASE} onAdd={(items) => { addItems(items); setShowSelector(false); }} existentes={proyecto.items.map((i) => i.codigo)} />}
+
+      {showCustom && (
+        <div style={{ background: COLORS.subtle, borderRadius: "8px", padding: "12px", marginBottom: "12px", display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 2, minWidth: "200px" }}>
+            <label style={S.label}>Descripción</label>
+            <input style={S.input} value={customItem.desc} onChange={(e) => setCustomItem((c) => ({ ...c, desc: e.target.value }))} />
+          </div>
+          <div style={{ width: "80px" }}>
+            <label style={S.label}>UM</label>
+            <select style={S.input} value={customItem.um} onChange={(e) => setCustomItem((c) => ({ ...c, um: e.target.value }))}>
+              {["UN", "KG", "M2", "M3", "LTS", "GL"].map((u) => (
+                <option key={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ width: "90px" }}>
+            <label style={S.label}>Cantidad</label>
+            <input style={S.input} type="number" value={customItem.cantPresup} onChange={(e) => setCustomItem((c) => ({ ...c, cantPresup: e.target.value }))} />
+          </div>
+          <div style={{ width: "130px" }}>
+            <label style={S.label}>Precio unit ($)</label>
+            <input style={S.input} type="number" value={customItem.precioCustom} onChange={(e) => setCustomItem((c) => ({ ...c, precioCustom: e.target.value }))} />
+          </div>
+          <button style={S.btn("gold", true)} onClick={addCustom}>Agregar</button>
+          <button style={S.btn("", true)} onClick={() => setShowCustom(false)}>✕</button>
+        </div>
+      )}
+
+      {proyecto.items.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px", color: COLORS.muted }}>Sin ítems. Agregá desde la base o usá la IA para leer un pliego.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "Consumido", "Semáf.", ""].map((h) => (
+                  <th key={h} style={S.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => {
+                const pVigente = precioVigente(item.codigo, item.precioBase, preciosActualizados);
+                const precio = item.precioCustom ?? pVigente;
+                const precioFinal = precio * iccFactor;
+                const subtotal = item.cantPresup * precioFinal;
+                const sem = semaforo(item.consumidoReal, item.cantPresup);
+                const tieneActualizacion = preciosActualizados?.[item.codigo]?.length > 0;
+                const semColor = sem === "verde" ? COLORS.verde : sem === "amarillo" ? COLORS.amarillo : sem === "rojo" ? COLORS.rojo : COLORS.muted;
+                return (
+                  <tr key={item.codigo}>
+                    <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
+                    <td style={{ ...S.td, maxWidth: "220px" }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px" }} title={item.desc}>{item.desc}</div>
+                      {item.esCustom && <span style={S.tag(COLORS.purple)}>CUSTOM</span>}
+                    </td>
+                    <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{item.um}</td>
+                    <td style={S.td}>
+                      <input type="number" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.cantPresup} onChange={(e) => updateItem(item.codigo, { cantPresup: parseFloat(e.target.value) || 0 })} />
+                    </td>
+                    <td style={{ ...S.td, fontSize: "11px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ color: tieneActualizacion ? COLORS.verde : COLORS.muted }}>
+                        {ars(pVigente)}
+                        {tieneActualizacion && <span title="Precio actualizado manualmente" style={{ marginLeft: "4px" }}>✎</span>}
+                      </div>
+                      {tieneActualizacion && <div style={{ color: COLORS.muted, fontSize: "10px", textDecoration: "line-through" }}>{ars(item.precioBase)}</div>}
+                    </td>
+                    <td style={S.td}>
+                      <input
+                        type="number"
+                        placeholder="—"
+                        style={{ ...S.input, width: "100px", textAlign: "right", color: item.precioCustom != null ? COLORS.gold : COLORS.muted }}
+                        value={item.precioCustom ?? ""}
+                        onChange={(e) => updateItem(item.codigo, { precioCustom: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      />
+                    </td>
+                    <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: COLORS.gold, whiteSpace: "nowrap" }}>{ars(subtotal)}</td>
+                    <td style={S.td}>
+                      <input type="number" placeholder="0" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.consumidoReal ?? ""} onChange={(e) => updateItem(item.codigo, { consumidoReal: parseFloat(e.target.value) || 0 })} />
+                    </td>
+                    <td style={{ ...S.td, textAlign: "center" }}>
+                      {sem ? <span style={{ fontSize: "16px" }} title={`${((item.consumidoReal / item.cantPresup) * 100).toFixed(0)}% consumido`}>{sem === "verde" ? "🟢" : sem === "amarillo" ? "🟡" : "🔴"}</span> : <span style={{ color: COLORS.muted }}>—</span>}
+                    </td>
+                    <td style={S.td}>
+                      <button style={{ ...S.btn("red", true), padding: "2px 7px" }} onClick={() => removeItem(item.codigo)}>✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
+                <td colSpan={6} style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>TOTAL PRESUPUESTO</td>
+                <td style={{ ...S.td, fontWeight: 800, color: COLORS.gold, fontSize: "15px", paddingTop: "12px", whiteSpace: "nowrap" }}>{ars(proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0))}</td>
+                <td colSpan={3}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TAB SEMÁFORO ─────────────────────────────────────────────────────────────
+function TabSemaforo({ proyecto, iccFactor, updateItem, preciosActualizados }) {
+  const items = proyecto.items;
+  const rojos = items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "rojo");
+  const amarillos = items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "amarillo");
+  const verdes = items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "verde");
+  const sinDato = items.filter((i) => !semaforo(i.consumidoReal, i.cantPresup));
+
+  if (items.length === 0) return <div style={{ ...S.panel, color: COLORS.muted, textAlign: "center", padding: "40px" }}>No hay ítems en el presupuesto</div>;
+
+  function SemGroup({ label, color, emoji, list }) {
+    if (list.length === 0) return null;
+    return (
+      <div style={{ marginBottom: "16px" }}>
+        <div style={{ fontWeight: 700, color, marginBottom: "8px", fontSize: "12px" }}>{emoji} {label} ({list.length})</div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>{["Código", "Descripción", "UM", "Presup.", "Consumido", "% Uso"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {list.map((item) => {
+              const pct = item.consumidoReal && item.cantPresup ? (item.consumidoReal / item.cantPresup * 100).toFixed(1) : "—";
+              return (
+                <tr key={item.codigo}>
+                  <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px" }}>{item.codigo}</td>
+                  <td style={{ ...S.td, fontSize: "12px", maxWidth: "250px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.desc}>{item.desc}</div></td>
+                  <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{item.um}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{item.cantPresup}</td>
+                  <td style={S.td}>
+                    <input type="number" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.consumidoReal ?? ""} placeholder="0" onChange={(e) => updateItem(item.codigo, { consumidoReal: parseFloat(e.target.value) || 0 })} />
+                  </td>
+                  <td style={{ ...S.td, textAlign: "right" }}>
+                    <span style={{ fontWeight: 700, color, padding: "2px 8px", background: `${color}15`, borderRadius: "4px" }}>{pct}{pct !== "—" ? "%" : ""}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.panel}>
+      <div style={{ display: "flex", gap: "10px", marginBottom: "18px", flexWrap: "wrap" }}>
+        {[
+          ["🔴", COLORS.rojo, rojos.length, "Sobre rendimiento"],
+          ["🟡", COLORS.amarillo, amarillos.length, "En límite"],
+          ["🟢", COLORS.verde, verdes.length, "OK"],
+          ["⚪", COLORS.muted, sinDato.length, "Sin datos"],
+        ].map(([e, c, n, l]) => (
+          <div key={l} style={{ ...S.panel, flex: 1, minWidth: "100px", textAlign: "center", padding: "12px" }}>
+            <div style={{ fontSize: "22px" }}>{e}</div>
+            <div style={{ fontWeight: 800, fontSize: "20px", color: c }}>{n}</div>
+            <div style={{ color: COLORS.muted, fontSize: "10px" }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <SemGroup label="SOBRE RENDIMIENTO — Acción requerida" color={COLORS.rojo} emoji="🔴" list={rojos} />
+      <SemGroup label="EN LÍMITE — Monitorear" color={COLORS.amarillo} emoji="🟡" list={amarillos} />
+      <SemGroup label="OK — Dentro del presupuesto" color={COLORS.verde} emoji="🟢" list={verdes} />
+      <SemGroup label="SIN CONSUMO CARGADO" color={COLORS.muted} emoji="⚪" list={sinDato} />
+    </div>
+  );
+}
+
+// ─── TAB IA / PLIEGO ──────────────────────────────────────────────────────────
+function TabIA({ proyecto, addItems, BASE }) {
+  const [pliego, setPliego] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoadingPdf(true);
+    setError("");
+    const ext = file.name.split(".").pop().toLowerCase();
+    try {
+      if (ext === "pdf") {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => {
+            const dataUrl = r.result;
+            if (!dataUrl || typeof dataUrl !== "string") {
+              rej(new Error("No se pudo leer el archivo"));
+              return;
+            }
+            const part = dataUrl.split(",")[1];
+            if (!part) rej(new Error("Formato de archivo inválido"));
+            else res(part);
+          };
+          r.onerror = () => rej(new Error("Error leyendo PDF"));
+          r.readAsDataURL(file);
+        });
+        const data = await sendChat({
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+                { type: "text", text: "Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios." },
+              ],
+            },
+          ],
+        });
+        if (data && data.error) {
+          const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
+          setError("Error al leer PDF: " + errMsg);
+          setPliego("");
+          return;
+        }
+        const content = data?.content;
+        const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+        setPliego(txt || "");
+      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: "array" });
+        let text = "";
+        wb.SheetNames.forEach((sname) => {
+          text += "--- Hoja: " + sname + " ---\n";
+          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "\n";
+        });
+        setPliego(text || "");
+      } else if (ext === "docx") {
+        const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
+        const ab = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: ab });
+        setPliego((result && result.value) || "");
+      } else {
+        const text = await file.text();
+        setPliego(text != null ? String(text) : "");
+      }
+    } catch (err) {
+      setError("Error al leer archivo: " + (err?.message || String(err)));
+      setPliego("");
+    } finally {
+      setLoadingPdf(false);
+    }
+    if (e.target && e.target.value) e.target.value = "";
+  }
+
+  function importarDesdeExcel() {
+    try {
+      const text = pliego != null ? String(pliego) : "";
+      const lines = text.split("\n").filter((l) => l.trim());
+      const toAdd = [];
+      lines.forEach((line) => {
+        const cols = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
+        if (cols.length < 2) return;
+        const [c0, c1, c2, c3, c4] = cols;
+        const cant = parseFloat(c3) || parseFloat(c2) || 1;
+        const precio = parseFloat(c4) || parseFloat(c3) || 0;
+        if (c1 && c1.length > 2) {
+          toAdd.push({
+            codigo: c0 || "CUSTOM-IMP",
+            desc: c1,
+            um: c2 || "UN",
+            precioBase: precio,
+            precioCustom: null,
+            cantPresup: cant,
+            consumidoReal: 0,
+            esCustom: true,
+            justificacion: "Importado desde Excel",
+          });
+        }
+      });
+      if (toAdd.length > 0) {
+        addItems(toAdd);
+        setPliego("");
+        setResultado(null);
+      } else {
+        setError("No se pudieron detectar ítems. Asegurate que el Excel tenga columnas: Código, Descripción, UM, Cantidad, Precio");
+      }
+    } catch (e) {
+      setError("Error al importar: " + e.message);
+    }
+  }
+
+  function extractJsonFromText(raw) {
+    if (!raw || typeof raw !== "string") return null;
+    let s = raw.trim();
+    // Strip markdown code block wrappers (e.g. ```json ... ``` or ``` ... ```)
+    const codeBlockMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) s = codeBlockMatch[1].trim();
+    // If still no brace, try to find JSON object: first { to last }
+    const firstBrace = s.indexOf("{");
+    const lastBrace = s.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      s = s.slice(firstBrace, lastBrace + 1);
+    }
+    return s || null;
+  }
+
+  async function analizarPliego() {
+    if (!(pliego || "").trim()) return;
+    setLoading(true);
+    setError("");
+    setResultado(null);
+    const baseResumen = BASE.slice(0, 200).map((b) => `${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
+    let rawResponse = null;
+    try {
+      const data = await sendChat({
+        messages: [
+          {
+            role: "user",
+            content: `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y determiná qué materiales son necesarios con sus cantidades estimadas.
+
+Obra: ${proyecto.nombre} (${proyecto.codigo})
+Cliente: ${proyecto.cliente}
+
+DESCRIPCIÓN / PLIEGO:
+${pliego}
+
+BASE DE MATERIALES DISPONIBLES (primeros 200, formato código|desc|um|precio):
+${baseResumen}
+
+Respondé SOLO con JSON válido, sin backticks, sin texto extra:
+{"items":[{"codigo":"XX.XX.XXXX","desc":"descripción","um":"UN","cantPresup":10,"precioBase":1000,"justificacion":"por qué se necesita y cómo se calculó la cantidad"}]}
+
+Si algún material necesario no está en la base, incluirlo con codigo "CUSTOM-XXX" y precioBase 0.
+Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
+          },
+        ],
+      });
+      rawResponse = data;
+      if (data?.error) {
+        const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
+        setError("Error al analizar: " + errMsg);
+        setLoading(false);
+        return;
+      }
+      // Defensive: API may return { error } or content may be missing/not array
+      const content = data?.content;
+      const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+      if (!txt) {
+        setError("La IA no devolvió texto. Revisá la consola (F12) para ver la respuesta.");
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[AI/Pliego] Respuesta sin contenido utilizable:", data);
+        }
+        setLoading(false);
+        return;
+      }
+      const jsonStr = extractJsonFromText(txt);
+      if (!jsonStr) {
+        setError("No se encontró JSON en la respuesta. La IA podría haber devuelto texto libre. Revisá la consola.");
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[AI/Pliego] Texto recibido (sin JSON):", txt.slice(0, 500));
+        }
+        setLoading(false);
+        return;
+      }
+      const parsed = JSON.parse(jsonStr);
+      const items = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (items.length === 0) {
+        setError("La IA devolvió JSON pero sin ítems (items vacío o faltante). Revisá la consola.");
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[AI/Pliego] JSON sin items:", parsed);
+        }
+        setLoading(false);
+        return;
+      }
+      setResultado(items);
+    } catch (e) {
+      setError("Error al analizar: " + (e?.message || String(e)));
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[AI/Pliego] Error o respuesta cruda:", e?.message, rawResponse ?? "no response");
+      }
+    }
+    setLoading(false);
+  }
+
+  function confirmarItems() {
+    const toAdd = resultado.map((r) => ({
+      codigo: r.codigo,
+      desc: r.desc,
+      um: r.um,
+      precioBase: r.precioBase || 0,
+      precioCustom: null,
+      cantPresup: r.cantPresup,
+      consumidoReal: 0,
+      esCustom: r.codigo.startsWith("CUSTOM"),
+      justificacion: r.justificacion,
+    }));
+    addItems(toAdd);
+    setResultado(null);
+    setPliego("");
+  }
+
+  return (
+    <div style={S.panel}>
+      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px", fontSize: "12px" }}>🤖 ANÁLISIS DE PLIEGO CON IA</div>
+      <div style={{ color: COLORS.muted, fontSize: "11px", marginBottom: "10px" }}>Pegá el texto del pliego, o subí un PDF directamente. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+
+      <div style={{ marginBottom: "10px" }}>
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{ display: "none" }} onChange={handleFile} />
+        <button style={{ ...S.btn("blue"), display: "flex", alignItems: "center", gap: "6px" }} onClick={() => fileRef.current.click()} disabled={loadingPdf}>
+          {loadingPdf ? "⏳ Leyendo archivo..." : "📎 SUBIR PDF / EXCEL / WORD"}
+        </button>
+        {pliego && <div style={{ fontSize: "10px", color: COLORS.verde, marginTop: "4px" }}>✓ Texto cargado ({pliego.length} caracteres)</div>}
+      </div>
+      <textarea
+        style={{ ...S.input, height: "140px", resize: "vertical", lineHeight: "1.5" }}
+        placeholder="Ej: Construcción de aulas modulares prefabricadas de 7x9m..."
+        value={pliego}
+        onChange={(e) => setPliego(e.target.value)}
+      />
+      <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+        <button style={S.btn()} onClick={analizarPliego} disabled={loading || !pliego.trim()}>
+          {loading ? "Analizando..." : "🤖 ANALIZAR CON IA"}
+        </button>
+        <button style={{ ...S.btn("gold") }} onClick={importarDesdeExcel} disabled={!pliego.trim()}>
+          📥 IMPORTAR ÍTEMS DIRECTO (Excel)
+        </button>
+      </div>
+      {error && <div style={{ color: COLORS.rojo, marginTop: "10px", fontSize: "12px" }}>{error}</div>}
+
+      {resultado && (
+        <div style={{ marginTop: "16px" }}>
+          <div style={{ fontWeight: 700, marginBottom: "10px", color: COLORS.gold, fontSize: "12px" }}>Ítems sugeridos por la IA ({resultado.length})</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
+            <thead>
+              <tr>{["Código", "Descripción", "UM", "Cantidad", "Precio ref.", "Justificación"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {resultado.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ ...S.td, fontSize: "10px", color: COLORS.muted, whiteSpace: "nowrap" }}>{r.codigo}</td>
+                  <td style={{ ...S.td, fontSize: "12px", maxWidth: "200px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.desc}>{r.desc}</div></td>
+                  <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{r.um}</td>
+                  <td style={{ ...S.td, textAlign: "right", fontWeight: 700 }}>{r.cantPresup}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: COLORS.gold, whiteSpace: "nowrap" }}>{ars(r.precioBase)}</td>
+                  <td style={{ ...S.td, fontSize: "11px", color: COLORS.muted, maxWidth: "200px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.justificacion}>{r.justificacion}</div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button style={S.btn("gold")} onClick={confirmarItems}>CONFIRMAR Y AGREGAR AL PRESUPUESTO</button>
+            <button style={S.btn()} onClick={() => setResultado(null)}>Descartar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TAB CONFIG ───────────────────────────────────────────────────────────────
+function TabConfig({ proyecto, updateProyecto }) {
+  const [form, setForm] = useState({ ...proyecto });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  return (
+    <div style={{ ...S.panel, maxWidth: "480px" }}>
+      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "16px", fontSize: "12px" }}>CONFIGURACIÓN DE OBRA</div>
+      <div style={{ display: "grid", gap: "14px" }}>
+        {[["Código", "codigo", "text"], ["Nombre", "nombre", "text"], ["Cliente", "cliente", "text"], ["Fecha inicio", "fechaInicio", "date"], ["Fecha fin", "fechaFin", "date"]].map(([l, k, t]) => (
+          <div key={k}>
+            <label style={S.label}>{l}</label>
+            <input style={S.input} type={t} value={form[k] || ""} onChange={(e) => set(k, e.target.value)} />
+          </div>
+        ))}
+        <div>
+          <label style={S.label}>Ajuste ICC ({form.iccPct}%)</label>
+          <input style={S.input} type="range" min="0" max="60" step="0.5" value={form.iccPct} onChange={(e) => set("iccPct", parseFloat(e.target.value))} />
+          <div style={{ color: COLORS.gold, fontSize: "11px", marginTop: "3px" }}>×{(1 + form.iccPct / 100).toFixed(3)} sobre precios ago-2025</div>
+        </div>
+      </div>
+      <button style={{ ...S.btn(), marginTop: "16px" }} onClick={() => updateProyecto(proyecto.id, form)}>GUARDAR CAMBIOS</button>
+    </div>
+  );
+}
+
+// ─── VISTA PROYECTO (exported as ProjectView) ──────────────────────────────────
+export default function ProjectView({ proyecto, updateProyecto, preciosActualizados, BASE }) {
+  const [tab, setTab] = useState("presupuesto");
+  const iccFactor = 1 + proyecto.iccPct / 100;
+
+  function addItems(newItems) {
+    const existing = new Set(proyecto.items.map((i) => i.codigo));
+    const toAdd = newItems.filter((i) => !existing.has(i.codigo));
+    updateProyecto(proyecto.id, { items: [...proyecto.items, ...toAdd] });
+  }
+  function updateItem(codigo, patch) {
+    updateProyecto(proyecto.id, { items: proyecto.items.map((i) => (i.codigo === codigo ? { ...i, ...patch } : i)) });
+  }
+  function removeItem(codigo) {
+    updateProyecto(proyecto.id, { items: proyecto.items.filter((i) => i.codigo !== codigo) });
+  }
+
+  const totalPresup = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
+  const alertasRojo = proyecto.items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "rojo").length;
+
+  return (
+    <div>
+      <div style={{ ...S.panel, marginBottom: "14px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontWeight: 800, color: COLORS.gold, fontSize: "16px" }}>{proyecto.codigo}</span>
+              <span style={{ fontWeight: 700, fontSize: "15px" }}>{proyecto.nombre}</span>
+            </div>
+            <div style={{ color: COLORS.muted, fontSize: "11px", marginTop: "3px" }}>{proyecto.cliente} · {proyecto.fechaInicio} → {proyecto.fechaFin} · ICC +{proyecto.iccPct}%</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "10px", color: COLORS.muted, letterSpacing: "0.08em" }}>TOTAL PRESUPUESTO</div>
+            <div style={{ fontWeight: 800, color: COLORS.gold, fontSize: "22px" }}>{ars(totalPresup)}</div>
+            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "4px" }}>
+              <span style={S.tag(COLORS.blue)}>{proyecto.items.length} ítems</span>
+              {alertasRojo > 0 && <span style={S.tag(COLORS.rojo)}>⚠ {alertasRojo} sobre rendimiento</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: "4px", marginBottom: "14px" }}>
+        {[["presupuesto", "📋 Presupuesto"], ["semaforo", "🚦 Semáforo"], ["ia", "🤖 IA / Pliego"], ["config", "⚙ Config"]].map(([t, l]) => (
+          <button key={t} onClick={() => setTab(t)} style={{ ...S.btn(tab === t ? "gold" : "", true), borderRadius: "6px 6px 0 0" }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "presupuesto" && <TabPresupuesto proyecto={proyecto} iccFactor={iccFactor} addItems={addItems} updateItem={updateItem} removeItem={removeItem} preciosActualizados={preciosActualizados} BASE={BASE} />}
+      {tab === "semaforo" && <TabSemaforo proyecto={proyecto} iccFactor={iccFactor} updateItem={updateItem} preciosActualizados={preciosActualizados} />}
+      {tab === "ia" && <TabIA proyecto={proyecto} addItems={addItems} BASE={BASE} />}
+      {tab === "config" && <TabConfig proyecto={proyecto} updateProyecto={updateProyecto} />}
+    </div>
+  );
+}

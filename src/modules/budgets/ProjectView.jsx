@@ -298,6 +298,63 @@ function TabSemaforo({ proyecto, iccFactor, updateItem, preciosActualizados }) {
   );
 }
 
+// ─── Construction filler words to remove before word-based matching
+const STOPWORDS = new Set(["de", "del", "para", "segun", "incluye", "tipo", "obra"]);
+
+// ─── Normalize text: lowercase, remove accents, remove symbols (Ø ° . , ( ) / etc.), collapse spaces
+function normalizeForMatch(s) {
+  if (s == null || typeof s !== "string") return "";
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[Ø°º.,()\/\[\]\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ─── Tokenize into words (normalized, no stopwords)
+function tokenizeForMatch(s) {
+  const n = normalizeForMatch(s);
+  if (!n) return [];
+  return n.split(/\s+/).filter((w) => w.length > 0 && !STOPWORDS.has(w));
+}
+
+// ─── Word overlap count (intersection size)
+function wordOverlapCount(wordsA, wordsB) {
+  const setB = new Set(wordsB);
+  return wordsA.filter((w) => setB.has(w)).length;
+}
+
+// ─── Find best base-price match: word-similarity + same-unit preference; highest overlap wins.
+function findBestBaseMatch(desc, um, BASE) {
+  if (!BASE || !Array.isArray(BASE) || BASE.length === 0) return null;
+  const tokensDesc = tokenizeForMatch(desc);
+  if (tokensDesc.length === 0) return null;
+  const nUm = normalizeForMatch(um) || "un";
+  const minOverlap = Math.min(2, tokensDesc.length);
+
+  const scored = [];
+  for (const b of BASE) {
+    const tokensBase = tokenizeForMatch(b.desc);
+    const overlap = wordOverlapCount(tokensDesc, tokensBase);
+    if (overlap < minOverlap) continue;
+    scored.push({
+      base: b,
+      overlap,
+      sameUnit: normalizeForMatch(b.um) === nUm,
+    });
+  }
+  if (scored.length === 0) return null;
+  scored.sort((a, b) => {
+    if (a.sameUnit !== b.sameUnit) return b.sameUnit ? 1 : -1;
+    return b.overlap - a.overlap;
+  });
+  const best = scored[0];
+  return best ? { codigo: best.base.codigo, precio: best.base.precio } : null;
+}
+
 // ─── TAB IA / PLIEGO ──────────────────────────────────────────────────────────
 function TabIA({ proyecto, addItems, BASE }) {
   const [pliego, setPliego] = useState("");
@@ -404,22 +461,60 @@ function TabIA({ proyecto, addItems, BASE }) {
     if (e.target && e.target.value) e.target.value = "";
   }
 
+  /**
+   * Parse a single line as "<description> <unit> <quantity>".
+   * Unit: m2, m3, ml, un (case-insensitive). Quantity: last number (allows . or , as decimal).
+   * Returns { desc, um, cant } or null if line does not match; invalid lines are skipped, no throw.
+   */
+  function parsePliegoLine(line) {
+    if (line == null || typeof line !== "string") return null;
+    const normalized = line.trim().replace(/\s+/g, " ");
+    if (!normalized) return null;
+    const match = normalized.match(/\s+(m2|m3|ml|un)\s+(\d+(?:[.,]\d+)?)\s*$/i);
+    if (!match) return null;
+    const qtyStr = match[2].replace(",", ".");
+    const quantity = parseFloat(qtyStr);
+    if (Number.isNaN(quantity) || quantity < 0) return null;
+    const desc = normalized.slice(0, match.index).trim();
+    if (!desc) return null;
+    return {
+      desc,
+      um: match[1].toUpperCase(),
+      cant: quantity,
+    };
+  }
+
   function importarDesdeExcel() {
     try {
       const text = pliego != null ? String(pliego) : "";
-      const lines = text.split("\n").filter((l) => l.trim());
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       const toAdd = [];
-      lines.forEach((line) => {
+      for (const line of lines) {
+        const parsed = parsePliegoLine(line);
+        if (parsed) {
+          toAdd.push({
+            codigo: "CUSTOM-IMP",
+            desc: parsed.desc,
+            um: parsed.um,
+            precioBase: 0,
+            precioCustom: null,
+            cantPresup: parsed.cant,
+            consumidoReal: 0,
+            esCustom: true,
+            justificacion: "Importado desde pliego",
+          });
+          continue;
+        }
         const cols = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
-        if (cols.length < 2) return;
+        if (cols.length < 2) continue;
         const [c0, c1, c2, c3, c4] = cols;
-        const cant = parseFloat(c3) || parseFloat(c2) || 1;
-        const precio = parseFloat(c4) || parseFloat(c3) || 0;
+        const cant = parseFloat(String(c3).replace(",", ".")) || parseFloat(String(c2).replace(",", ".")) || 1;
+        const precio = parseFloat(String(c4).replace(",", ".")) || parseFloat(String(c3).replace(",", ".")) || 0;
         if (c1 && c1.length > 2) {
           toAdd.push({
             codigo: c0 || "CUSTOM-IMP",
             desc: c1,
-            um: c2 || "UN",
+            um: (c2 && String(c2).trim()) || "UN",
             precioBase: precio,
             precioCustom: null,
             cantPresup: cant,
@@ -428,16 +523,17 @@ function TabIA({ proyecto, addItems, BASE }) {
             justificacion: "Importado desde Excel",
           });
         }
-      });
+      }
       if (toAdd.length > 0) {
         addItems(toAdd);
         setPliego("");
         setResultado(null);
+        setError("");
       } else {
-        setError("No se pudieron detectar ítems. Asegurate que el Excel tenga columnas: Código, Descripción, UM, Cantidad, Precio");
+        setError("No se pudieron detectar ítems. Usá líneas «descripción unidad cantidad» (ej: Platea de fundación m3 1.10) o CSV con columnas: Código, Descripción, UM, Cantidad, Precio");
       }
     } catch (e) {
-      setError("Error al importar: " + e.message);
+      setError("Error al importar: " + (e && e.message ? e.message : String(e)));
     }
   }
 
@@ -451,15 +547,11 @@ function TabIA({ proyecto, addItems, BASE }) {
   function extractAndParseJson(raw) {
     if (!raw || typeof raw !== "string") return null;
     let s = raw.trim();
-    // Remove markdown code block wrappers (```json ... ``` or ``` ... ```)
-    const codeBlockRe = /^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/;
-    const codeBlockMatch = s.match(codeBlockRe);
-    if (codeBlockMatch) s = codeBlockMatch[1].trim();
-    // Also strip if there is leading/trailing backticks without full block (e.g. ```json\n... no closing)
+    // Strip markdown code block: remove leading ```json or ``` (and optional newline/whitespace)
     if (s.startsWith("```")) {
-      s = s.replace(/^```(?:json)?\s*\n?/, "").trim();
-      const lastBacktick = s.lastIndexOf("```");
-      if (lastBacktick !== -1) s = s.slice(0, lastBacktick).trim();
+      s = s.replace(/^```(?:json)?\s*[\r\n]*/, "").trim();
+      // Remove trailing ``` only when it's at the end (avoids cutting JSON that contains backticks)
+      s = s.replace(/\s*```\s*$/, "").trim();
     }
     // Extract largest JSON object: from first { to last }
     const firstBrace = s.indexOf("{");
@@ -590,17 +682,27 @@ Reglas:
   function confirmarItems() {
     const rubros = Array.isArray(resultado?.rubros) ? resultado.rubros : [];
     const toAdd = rubros.flatMap((rubro) =>
-      (Array.isArray(rubro.items) ? rubro.items : []).map((item) => ({
-        codigo: "CUSTOM-IMP",
-        desc: item.descripcion != null ? String(item.descripcion) : "",
-        um: (item.unidad != null && String(item.unidad).trim()) || "UN",
-        precioBase: 0,
-        precioCustom: null,
-        cantPresup: Number(item.cantidad) || 0,
-        consumidoReal: 0,
-        esCustom: true,
-        justificacion: item.observaciones != null ? String(item.observaciones) : "",
-      }))
+      (Array.isArray(rubro.items) ? rubro.items : []).map((item) => {
+        const desc = item.descripcion != null ? String(item.descripcion) : "";
+        const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
+        const match = findBestBaseMatch(desc, um, BASE);
+        if (match && typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", match.codigo, "P.BASE:", match.precio);
+        } else if (!match && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Unmatched:", desc.slice(0, 50), "(P.BASE = 0)");
+        }
+        return {
+          codigo: match ? match.codigo : "CUSTOM-IMP",
+          desc: desc,
+          um: um,
+          precioBase: match ? match.precio : 0,
+          precioCustom: null,
+          cantPresup: Number(item.cantidad) || 0,
+          consumidoReal: 0,
+          esCustom: !match,
+          justificacion: item.observaciones != null ? String(item.observaciones) : "",
+        };
+      })
     ).filter((r) => r.desc.trim().length > 0);
     addItems(toAdd);
     setResultado(null);

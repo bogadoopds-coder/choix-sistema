@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import * as XLSX from "xlsx";
 import { ars } from "../../utils/format";
 import { uid } from "../../utils/id";
 import { precioVigente, semaforo } from "../../utils/budgets";
@@ -304,6 +305,7 @@ function TabIA({ proyecto, addItems, BASE }) {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
+  const [fileWarning, setFileWarning] = useState("");
   const fileRef = useRef(null);
 
   async function handleFile(e) {
@@ -311,6 +313,7 @@ function TabIA({ proyecto, addItems, BASE }) {
     if (!file) return;
     setLoadingPdf(true);
     setError("");
+    setFileWarning("");
     const ext = file.name.split(".").pop().toLowerCase();
     try {
       if (ext === "pdf") {
@@ -339,6 +342,7 @@ function TabIA({ proyecto, addItems, BASE }) {
               ],
             },
           ],
+          max_tokens: 8192,
         });
         if (data && data.error) {
           const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
@@ -349,28 +353,51 @@ function TabIA({ proyecto, addItems, BASE }) {
         const content = data?.content;
         const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
         setPliego(txt || "");
-      } else if (ext === "xlsx" || ext === "xls" || ext === "csv") {
-        const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
+        if (data.stop_reason === "max_tokens") {
+          setFileWarning("Advertencia: la respuesta podría estar truncada por límite de longitud.");
+        } else if (txt.length > 0 && txt.length < 300) {
+          setFileWarning("Texto muy breve; si el PDF tiene más contenido, es posible que no se haya extraído todo.");
+        } else {
+          setFileWarning("");
+        }
+      } else if (ext === "xlsx" || ext === "xls") {
         const ab = await file.arrayBuffer();
-        const wb = XLSX.read(ab, { type: "array" });
+        let wb;
+        try {
+          wb = XLSX.read(ab, { type: "array" });
+        } catch (ex) {
+          setError("Error al leer Excel: " + (ex?.message || String(ex)));
+          setPliego("");
+          return;
+        }
         let text = "";
-        wb.SheetNames.forEach((sname) => {
+        (wb.SheetNames || []).forEach((sname) => {
           text += "--- Hoja: " + sname + " ---\n";
-          text += XLSX.utils.sheet_to_csv(wb.Sheets[sname]) + "\n";
+          try {
+            text += XLSX.utils.sheet_to_csv(wb.Sheets[sname] || {}) + "\n";
+          } catch (_) {
+            text += "\n";
+          }
         });
         setPliego(text || "");
+      } else if (ext === "csv") {
+        const text = await file.text();
+        setPliego(text != null ? String(text) : "");
       } else if (ext === "docx") {
         const mammoth = await import("https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.esm.js");
         const ab = await file.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer: ab });
         setPliego((result && result.value) || "");
+        setFileWarning("");
       } else {
         const text = await file.text();
         setPliego(text != null ? String(text) : "");
+        setFileWarning("");
       }
     } catch (err) {
       setError("Error al leer archivo: " + (err?.message || String(err)));
       setPliego("");
+      setFileWarning("");
     } finally {
       setLoadingPdf(false);
     }
@@ -414,19 +441,68 @@ function TabIA({ proyecto, addItems, BASE }) {
     }
   }
 
-  function extractJsonFromText(raw) {
+  /**
+   * Extracts and optionally repairs JSON from AI response text.
+   * - Strips ```json ... ``` and ``` ... ``` wrappers
+   * - Ignores text before/after; extracts span from first { to last }
+   * - Returns the largest (outermost) JSON object as string
+   * - If parse fails, tries to balance missing closing braces/brackets
+   */
+  function extractAndParseJson(raw) {
     if (!raw || typeof raw !== "string") return null;
     let s = raw.trim();
-    // Strip markdown code block wrappers (e.g. ```json ... ``` or ``` ... ```)
-    const codeBlockMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    // Remove markdown code block wrappers (```json ... ``` or ``` ... ```)
+    const codeBlockRe = /^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/;
+    const codeBlockMatch = s.match(codeBlockRe);
     if (codeBlockMatch) s = codeBlockMatch[1].trim();
-    // If still no brace, try to find JSON object: first { to last }
+    // Also strip if there is leading/trailing backticks without full block (e.g. ```json\n... no closing)
+    if (s.startsWith("```")) {
+      s = s.replace(/^```(?:json)?\s*\n?/, "").trim();
+      const lastBacktick = s.lastIndexOf("```");
+      if (lastBacktick !== -1) s = s.slice(0, lastBacktick).trim();
+    }
+    // Extract largest JSON object: from first { to last }
     const firstBrace = s.indexOf("{");
     const lastBrace = s.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-      s = s.slice(firstBrace, lastBrace + 1);
+    if (firstBrace === -1 || lastBrace <= firstBrace) return null;
+    let jsonStr = s.slice(firstBrace, lastBrace + 1);
+
+    function tryParse(str) {
+      try {
+        return JSON.parse(str);
+      } catch (_) {
+        return null;
+      }
     }
-    return s || null;
+
+    let parsed = tryParse(jsonStr);
+    if (parsed !== null) return parsed;
+
+    // Repair: balance missing closing braces/brackets (ignore inside double-quoted strings)
+    let depthObj = 0;
+    let depthArr = 0;
+    let inStr = false;
+    let escape = false;
+    for (let i = 0; i < jsonStr.length; i++) {
+      const c = jsonStr[i];
+      if (inStr) {
+        if (escape) { escape = false; continue; }
+        if (c === "\\") { escape = true; continue; }
+        if (c === '"') { inStr = false; continue; }
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
+      if (c === "{") depthObj++;
+      else if (c === "}") depthObj--;
+      else if (c === "[") depthArr++;
+      else if (c === "]") depthArr--;
+    }
+    const closing = "]".repeat(Math.max(0, depthArr)) + "}".repeat(Math.max(0, depthObj));
+    if (closing) {
+      parsed = tryParse(jsonStr + closing);
+      if (parsed !== null) return parsed;
+    }
+    return null;
   }
 
   async function analizarPliego() {
@@ -434,29 +510,32 @@ function TabIA({ proyecto, addItems, BASE }) {
     setLoading(true);
     setError("");
     setResultado(null);
-    const baseResumen = BASE.slice(0, 200).map((b) => `${b.codigo}|${b.desc}|${b.um}|${b.precio}`).join("\n");
     let rawResponse = null;
     try {
       const data = await sendChat({
         messages: [
           {
             role: "user",
-            content: `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y determiná qué materiales son necesarios con sus cantidades estimadas.
+            content: `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y extraé los rubros e ítems con cantidades.
 
-Obra: ${proyecto.nombre} (${proyecto.codigo})
-Cliente: ${proyecto.cliente}
+OBRA: ${proyecto.nombre} (${proyecto.codigo})
+CLIENTE: ${proyecto.cliente}
 
 DESCRIPCIÓN / PLIEGO:
 ${pliego}
 
-BASE DE MATERIALES DISPONIBLES (primeros 200, formato código|desc|um|precio):
-${baseResumen}
+Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes ni después, ni backticks ni explicaciones.
+Formato exacto (respeta los nombres de campos):
 
-Respondé SOLO con JSON válido, sin backticks, sin texto extra:
-{"items":[{"codigo":"XX.XX.XXXX","desc":"descripción","um":"UN","cantPresup":10,"precioBase":1000,"justificacion":"por qué se necesita y cómo se calculó la cantidad"}]}
+{"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"UN","cantidad":0,"observaciones":"cálculo o justificación"}]}]}
 
-Si algún material necesario no está en la base, incluirlo con codigo "CUSTOM-XXX" y precioBase 0.
-Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
+Reglas:
+- obra: string con el nombre de la obra.
+- rubros: array de objetos; cada uno tiene "nombre" (string) e "items" (array).
+- Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), observaciones (string).
+- Agrupá por rubros lógicos (ej. "Estructura", "Instalaciones", "Terminaciones"). Entre 1 y 15 rubros.
+- Cantidades conservadoras y realistas. Máximo 50 ítems en total.
+- Respuesta: solo el JSON, nada más.`,
           },
         ],
       });
@@ -467,9 +546,11 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
         setLoading(false);
         return;
       }
-      // Defensive: API may return { error } or content may be missing/not array
       const content = data?.content;
       const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[AI/Pliego] Raw AI response:", txt);
+      }
       if (!txt) {
         setError("La IA no devolvió texto. Revisá la consola (F12) para ver la respuesta.");
         if (typeof console !== "undefined" && console.warn) {
@@ -478,26 +559,25 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
         setLoading(false);
         return;
       }
-      const jsonStr = extractJsonFromText(txt);
-      if (!jsonStr) {
-        setError("No se encontró JSON en la respuesta. La IA podría haber devuelto texto libre. Revisá la consola.");
+      const parsed = extractAndParseJson(txt);
+      if (parsed === null) {
+        setError("No se encontró JSON válido en la respuesta. Revisá la consola.");
         if (typeof console !== "undefined" && console.warn) {
-          console.warn("[AI/Pliego] Texto recibido (sin JSON):", txt.slice(0, 500));
+          console.warn("[AI/Pliego] No se pudo extraer/parsear JSON. Texto (primeros 800):", txt.slice(0, 800));
         }
         setLoading(false);
         return;
       }
-      const parsed = JSON.parse(jsonStr);
-      const items = Array.isArray(parsed?.items) ? parsed.items : [];
-      if (items.length === 0) {
-        setError("La IA devolvió JSON pero sin ítems (items vacío o faltante). Revisá la consola.");
+      const rubros = parsed.rubros;
+      if (!Array.isArray(rubros) || rubros.length === 0) {
+        setError("La IA devolvió JSON pero sin rubros válidos (rubros debe ser un array no vacío). Revisá la consola.");
         if (typeof console !== "undefined" && console.warn) {
-          console.warn("[AI/Pliego] JSON sin items:", parsed);
+          console.warn("[AI/Pliego] JSON parseado sin rubros válidos:", parsed);
         }
         setLoading(false);
         return;
       }
-      setResultado(items);
+      setResultado({ obra: parsed.obra || proyecto.nombre, rubros });
     } catch (e) {
       setError("Error al analizar: " + (e?.message || String(e)));
       if (typeof console !== "undefined" && console.warn) {
@@ -508,17 +588,20 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
   }
 
   function confirmarItems() {
-    const toAdd = resultado.map((r) => ({
-      codigo: r.codigo,
-      desc: r.desc,
-      um: r.um,
-      precioBase: r.precioBase || 0,
-      precioCustom: null,
-      cantPresup: r.cantPresup,
-      consumidoReal: 0,
-      esCustom: r.codigo.startsWith("CUSTOM"),
-      justificacion: r.justificacion,
-    }));
+    const rubros = Array.isArray(resultado?.rubros) ? resultado.rubros : [];
+    const toAdd = rubros.flatMap((rubro) =>
+      (Array.isArray(rubro.items) ? rubro.items : []).map((item) => ({
+        codigo: "CUSTOM-IMP",
+        desc: item.descripcion != null ? String(item.descripcion) : "",
+        um: (item.unidad != null && String(item.unidad).trim()) || "UN",
+        precioBase: 0,
+        precioCustom: null,
+        cantPresup: Number(item.cantidad) || 0,
+        consumidoReal: 0,
+        esCustom: true,
+        justificacion: item.observaciones != null ? String(item.observaciones) : "",
+      }))
+    ).filter((r) => r.desc.trim().length > 0);
     addItems(toAdd);
     setResultado(null);
     setPliego("");
@@ -535,6 +618,7 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
           {loadingPdf ? "⏳ Leyendo archivo..." : "📎 SUBIR PDF / EXCEL / WORD"}
         </button>
         {pliego && <div style={{ fontSize: "10px", color: COLORS.verde, marginTop: "4px" }}>✓ Texto cargado ({pliego.length} caracteres)</div>}
+        {fileWarning && <div style={{ fontSize: "11px", color: COLORS.gold, marginTop: "6px" }}>⚠ {fileWarning}</div>}
       </div>
       <textarea
         style={{ ...S.input, height: "140px", resize: "vertical", lineHeight: "1.5" }}
@@ -552,26 +636,35 @@ Estimá cantidades conservadoras pero realistas. Máximo 20 ítems.`,
       </div>
       {error && <div style={{ color: COLORS.rojo, marginTop: "10px", fontSize: "12px" }}>{error}</div>}
 
-      {resultado && (
+      {resultado && resultado.rubros && (
         <div style={{ marginTop: "16px" }}>
-          <div style={{ fontWeight: 700, marginBottom: "10px", color: COLORS.gold, fontSize: "12px" }}>Ítems sugeridos por la IA ({resultado.length})</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}>
-            <thead>
-              <tr>{["Código", "Descripción", "UM", "Cantidad", "Precio ref.", "Justificación"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {resultado.map((r, i) => (
-                <tr key={i}>
-                  <td style={{ ...S.td, fontSize: "10px", color: COLORS.muted, whiteSpace: "nowrap" }}>{r.codigo}</td>
-                  <td style={{ ...S.td, fontSize: "12px", maxWidth: "200px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.desc}>{r.desc}</div></td>
-                  <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{r.um}</td>
-                  <td style={{ ...S.td, textAlign: "right", fontWeight: 700 }}>{r.cantPresup}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: COLORS.gold, whiteSpace: "nowrap" }}>{ars(r.precioBase)}</td>
-                  <td style={{ ...S.td, fontSize: "11px", color: COLORS.muted, maxWidth: "200px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.justificacion}>{r.justificacion}</div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ fontWeight: 700, marginBottom: "10px", color: COLORS.gold, fontSize: "12px" }}>
+            {resultado.obra ? `Obra: ${resultado.obra}` : "Resultado del análisis"}
+          </div>
+          <div style={{ maxHeight: "360px", overflowY: "auto", marginBottom: "12px" }}>
+            {resultado.rubros.map((rubro, ri) => (
+              <div key={ri} style={{ marginBottom: "14px" }}>
+                <div style={{ fontWeight: 600, color: COLORS.gold, fontSize: "11px", marginBottom: "6px", paddingBottom: "4px", borderBottom: `1px solid ${COLORS.border}` }}>
+                  {rubro.nombre || `Rubro ${ri + 1}`}
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>{["Descripción", "Unidad", "Cantidad", "Observaciones"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {(Array.isArray(rubro.items) ? rubro.items : []).map((item, ii) => (
+                      <tr key={ii}>
+                        <td style={{ ...S.td, fontSize: "12px", maxWidth: "220px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.descripcion}>{item.descripcion}</div></td>
+                        <td style={{ ...S.td, textAlign: "center", color: COLORS.muted, whiteSpace: "nowrap" }}>{item.unidad}</td>
+                        <td style={{ ...S.td, textAlign: "right", fontWeight: 700 }}>{item.cantidad}</td>
+                        <td style={{ ...S.td, fontSize: "11px", color: COLORS.muted, maxWidth: "180px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.observaciones}>{item.observaciones}</div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <button style={S.btn("gold")} onClick={confirmarItems}>CONFIRMAR Y AGREGAR AL PRESUPUESTO</button>
             <button style={S.btn()} onClick={() => setResultado(null)}>Descartar</button>

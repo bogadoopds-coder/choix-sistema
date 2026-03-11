@@ -3,9 +3,10 @@
 
 const CHAT_ENDPOINT = "/.netlify/functions/chat";
 
-export async function sendChat({ messages, system }) {
+export async function sendChat({ messages, system, max_tokens }) {
   const body = { messages };
   if (system) body.system = system;
+  if (typeof max_tokens === "number" && max_tokens > 0) body.max_tokens = max_tokens;
 
   const res = await fetch(CHAT_ENDPOINT, {
     method: "POST",

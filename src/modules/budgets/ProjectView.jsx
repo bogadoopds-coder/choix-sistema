@@ -707,7 +707,19 @@ function TabIA({ proyecto, addItems, BASE }) {
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
   const [fileWarning, setFileWarning] = useState("");
+  const [usarPreciosPliego, setUsarPreciosPliego] = useState(true);
   const fileRef = useRef(null);
+
+  function pliegoTienePrecios() {
+    if (!pliego || typeof pliego !== "string") return false;
+    const lines = pliego.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return lines.some((line) => {
+      const cols = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
+      if (cols.length < 5) return false;
+      const n = parseFloat(String(cols[4]).replace(",", "."));
+      return Number.isFinite(n) && n > 0;
+    });
+  }
 
   async function handleFile(e) {
     const file = e.target.files[0];
@@ -867,19 +879,52 @@ function TabIA({ proyecto, addItems, BASE }) {
         if (cols.length < 2) continue;
         const [c0, c1, c2, c3, c4] = cols;
         const cant = parseFloat(String(c3).replace(",", ".")) || parseFloat(String(c2).replace(",", ".")) || 1;
-        const precio = parseFloat(String(c4).replace(",", ".")) || parseFloat(String(c3).replace(",", ".")) || 0;
+        const precioCol = cols.length >= 5 ? parseFloat(String(c4).replace(",", ".")) : parseFloat(String(c4).replace(",", ".")) || parseFloat(String(c3).replace(",", ".")) || 0;
         if (c1 && c1.length > 2) {
-          toAdd.push({
-            codigo: c0 || "CUSTOM-IMP",
-            desc: c1,
-            um: (c2 && String(c2).trim()) || "UN",
-            precioBase: precio,
-            precioCustom: null,
-            cantPresup: cant,
-            consumidoReal: 0,
-            esCustom: true,
-            justificacion: "Importado desde Excel",
-          });
+          if (cols.length >= 5) {
+            const desc = c1;
+            const um = (c2 && String(c2).trim()) || "UN";
+            const numero = c0 || "CUSTOM-IMP";
+            if (usarPreciosPliego && Number.isFinite(precioCol) && precioCol > 0) {
+              toAdd.push({
+                codigo: numero,
+                desc,
+                um,
+                precioBase: 0,
+                precioCustom: precioCol,
+                cantPresup: cant,
+                consumidoReal: 0,
+                esCustom: true,
+                justificacion: "Precio del pliego original",
+              });
+            } else {
+              const match = findBestBaseMatch(desc, um, BASE);
+              const precioBase = (match && match.precio != null) ? match.precio : 0;
+              toAdd.push({
+                codigo: match && match.codigo ? match.codigo : numero,
+                desc,
+                um,
+                precioBase,
+                precioCustom: null,
+                cantPresup: cant,
+                consumidoReal: 0,
+                esCustom: false,
+                justificacion: match && match.precio != null ? "Precio de base" : "Sin match en base",
+              });
+            }
+          } else {
+            toAdd.push({
+              codigo: c0 || "CUSTOM-IMP",
+              desc: c1,
+              um: (c2 && String(c2).trim()) || "UN",
+              precioBase: precioCol,
+              precioCustom: null,
+              cantPresup: cant,
+              consumidoReal: 0,
+              esCustom: true,
+              justificacion: "Importado desde Excel",
+            });
+          }
         }
       }
       if (toAdd.length > 0) {
@@ -1485,12 +1530,30 @@ Reglas:
         value={pliego}
         onChange={(e) => setPliego(e.target.value)}
       />
+      {pliegoTienePrecios() && (
+        <div style={{ marginTop: "10px", marginBottom: "6px" }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+            <input
+              type="checkbox"
+              checked={usarPreciosPliego}
+              onChange={(e) => setUsarPreciosPliego(e.target.checked)}
+              style={{ accentColor: COLORS.gold, marginTop: "2px" }}
+            />
+            <span>
+              <span style={{ fontWeight: 600 }}>Usar precios del documento</span>
+              <div style={{ color: COLORS.muted, fontSize: "11px", marginTop: "2px" }}>
+                Activado: importa con precios originales. Desactivado: busca precios actualizados en la base.
+              </div>
+            </span>
+          </label>
+        </div>
+      )}
       <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
         <button style={S.btn()} onClick={analizarPliego} disabled={loading || !pliego.trim()}>
           {loading ? "Analizando..." : "🤖 ANALIZAR CON IA"}
         </button>
         <button style={{ ...S.btn("gold") }} onClick={importarDesdeExcel} disabled={!pliego.trim()}>
-          📥 IMPORTAR ÍTEMS DIRECTO (Excel)
+          {usarPreciosPliego ? "📥 IMPORTAR CON PRECIOS DEL PLIEGO" : "📥 IMPORTAR Y BUSCAR PRECIOS EN BASE"}
         </button>
       </div>
       {error && <div style={{ color: COLORS.rojo, marginTop: "10px", fontSize: "12px" }}>{error}</div>}

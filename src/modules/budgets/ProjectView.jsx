@@ -3,10 +3,6 @@ import * as XLSX from "xlsx";
 import { ars } from "../../utils/format";
 import { uid } from "../../utils/id";
 import { precioVigente, semaforo } from "../../utils/budgets";
-import { getRendimiento, getRendimientoMatch } from "../../utils/rendimientos";
-import { RENDIMIENTOS } from "../../data/rendimientos";
-import { getCrewDailyCost, getLaborUnitCost, getLaborTotalCost } from "../../utils/laborCosts";
-import { WORKER_DAILY_COST, CREWS } from "../../data/laborCosts";
 import { COLORS, S } from "../../styles/theme";
 import { sendChat } from "../../services/ai/chatClient";
 
@@ -166,7 +162,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "Consumido", "Días est.", "MO unit.", "MO total", "Semáf.", ""].map((h) => (
+                {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "Consumido", "Semáf.", ""].map((h) => (
                   <th key={h} style={S.th}>{h}</th>
                 ))}
               </tr>
@@ -180,13 +176,6 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                 const subtotal = (item.cantPresup ?? 0) * precioFinal;
                 const sem = semaforo(item.consumidoReal, item.cantPresup);
                 const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
-                const rendMatch = getRendimientoMatch(item.desc, item.um, RENDIMIENTOS);
-                const esActividad = rendMatch && rendMatch.actividad !== false;
-                const rend = esActividad && rendMatch ? rendMatch.rendimiento : null;
-                const diasEst = rend != null && rend > 0 ? item.cantPresup / rend : null;
-                const crewDaily = esActividad && rendMatch?.crewId ? getCrewDailyCost(rendMatch.crewId, CREWS, WORKER_DAILY_COST) : 0;
-                const laborUnit = getLaborUnitCost(crewDaily, rend);
-                const laborTotal = esActividad ? getLaborTotalCost(laborUnit, item.cantPresup) : null;
                 return (
                   <tr key={item.codigo}>
                     <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
@@ -218,15 +207,6 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                     <td style={S.td}>
                       <input type="number" placeholder="0" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.consumidoReal ?? ""} onChange={(e) => updateItem(item.codigo, { consumidoReal: parseFloat(e.target.value) || 0 })} />
                     </td>
-                    <td style={{ ...S.td, textAlign: "right", fontSize: "11px", color: COLORS.muted }}>
-                      {diasEst != null ? diasEst.toFixed(1) : "—"}
-                    </td>
-                    <td style={{ ...S.td, textAlign: "right", fontSize: "11px", color: COLORS.muted, whiteSpace: "nowrap" }}>
-                      {laborUnit != null ? ars(laborUnit) : "—"}
-                    </td>
-                    <td style={{ ...S.td, textAlign: "right", fontSize: "11px", fontWeight: 600, color: laborTotal != null ? COLORS.muted : COLORS.muted, whiteSpace: "nowrap" }}>
-                      {laborTotal != null ? ars(laborTotal) : "—"}
-                    </td>
                     <td style={{ ...S.td, textAlign: "center" }}>
                       {sem ? <span style={{ fontSize: "16px" }} title={`${((item.consumidoReal / item.cantPresup) * 100).toFixed(0)}% consumido`}>{sem === "verde" ? "🟢" : sem === "amarillo" ? "🟡" : "🔴"}</span> : <span style={{ color: COLORS.muted }}>—</span>}
                     </td>
@@ -242,29 +222,6 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                 <td colSpan={6} style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>TOTAL PRESUPUESTO</td>
                 <td style={{ ...S.td, fontWeight: 800, color: COLORS.gold, fontSize: "15px", paddingTop: "12px", whiteSpace: "nowrap" }}>{ars(proyecto.items.reduce((s, i) => s + (i.cantPresup ?? 0) * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0))}</td>
                 <td style={S.td} />
-                <td style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>
-                  {(() => {
-                    const totalDias = proyecto.items.reduce((acc, i) => {
-                      const r = getRendimiento(i.desc, i.um, RENDIMIENTOS);
-                      return acc + (r != null && r > 0 ? i.cantPresup / r : 0);
-                    }, 0);
-                    return totalDias > 0 ? `${totalDias.toFixed(1)} días est.` : "—";
-                  })()}
-                </td>
-                <td style={S.td} />
-                <td style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px", whiteSpace: "nowrap" }}>
-                  {(() => {
-                    const totalMO = proyecto.items.reduce((acc, i) => {
-                      const m = getRendimientoMatch(i.desc, i.um, RENDIMIENTOS);
-                      if (!m || m.actividad === false) return acc;
-                      const cd = m.crewId ? getCrewDailyCost(m.crewId, CREWS, WORKER_DAILY_COST) : 0;
-                      const lu = getLaborUnitCost(cd, m.rendimiento);
-                      const lt = getLaborTotalCost(lu, i.cantPresup);
-                      return acc + (lt != null ? lt : 0);
-                    }, 0);
-                    return totalMO > 0 ? ars(totalMO) : "—";
-                  })()}
-                </td>
                 <td colSpan={2} style={S.td} />
               </tr>
             </tfoot>

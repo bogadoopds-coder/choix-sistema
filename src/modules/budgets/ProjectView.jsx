@@ -95,7 +95,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
   const [showCustom, setShowCustom] = useState(false);
   const [customItem, setCustomItem] = useState({ desc: "", um: "UN", cantPresup: "1", precioCustom: "" });
 
-  const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
+  const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
   function addCustom() {
     if (!customItem.desc) return;
@@ -115,7 +115,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
     setShowCustom(false);
   }
 
-  const filtered = proyecto.items.filter((i) => i.desc.toLowerCase().includes(search.toLowerCase()) || i.codigo.includes(search));
+  const filtered = proyecto.items.filter((i) => (i.desc && i.desc.toLowerCase().includes(search.toLowerCase())) || (i.codigo && i.codigo.includes(search)));
 
   return (
     <div style={{ ...S.panel }}>
@@ -173,12 +173,13 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
             </thead>
             <tbody>
               {filtered.map((item) => {
-                const pVigente = precioVigente(item.codigo, item.precioBase, preciosActualizados);
+                const codigoBase = item.baseCodigo ?? item.codigo;
+                const pVigente = precioVigente(codigoBase, item.precioBase, preciosActualizados);
                 const precio = item.precioCustom ?? pVigente;
                 const precioFinal = precio * iccFactor;
-                const subtotal = item.cantPresup * precioFinal;
+                const subtotal = (item.cantPresup ?? 0) * precioFinal;
                 const sem = semaforo(item.consumidoReal, item.cantPresup);
-                const tieneActualizacion = preciosActualizados?.[item.codigo]?.length > 0;
+                const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
                 const rendMatch = getRendimientoMatch(item.desc, item.um, RENDIMIENTOS);
                 const rend = rendMatch ? rendMatch.rendimiento : null;
                 const diasEst = rend != null && rend > 0 ? item.cantPresup / rend : null;
@@ -238,7 +239,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
             <tfoot>
               <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
                 <td colSpan={6} style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>TOTAL PRESUPUESTO</td>
-                <td style={{ ...S.td, fontWeight: 800, color: COLORS.gold, fontSize: "15px", paddingTop: "12px", whiteSpace: "nowrap" }}>{ars(proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0))}</td>
+                <td style={{ ...S.td, fontWeight: 800, color: COLORS.gold, fontSize: "15px", paddingTop: "12px", whiteSpace: "nowrap" }}>{ars(proyecto.items.reduce((s, i) => s + (i.cantPresup ?? 0) * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0))}</td>
                 <td style={S.td} />
                 <td style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>
                   {(() => {
@@ -720,10 +721,16 @@ Reglas:
     setLoading(false);
   }
 
+  const MAX_IMPORT_ITEMS = 200;
+
   function confirmarItems() {
     const rubros = Array.isArray(resultado?.rubros) ? resultado.rubros : [];
-    const toAdd = rubros.flatMap((rubro) =>
-      (Array.isArray(rubro.items) ? rubro.items : []).map((item) => {
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] confirmarItems: rubros count =", rubros.length);
+    }
+    const flattened = rubros.flatMap((rubro) =>
+      (Array.isArray(rubro?.items) ? rubro.items : []).map((item) => {
+        if (item == null || typeof item !== "object") return null;
         const desc = item.descripcion != null ? String(item.descripcion) : "";
         const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
         const match = findBestBaseMatch(desc, um, BASE);
@@ -733,7 +740,8 @@ Reglas:
           console.log("[AI/Pliego] Unmatched:", desc.slice(0, 50), "(P.BASE = 0)");
         }
         return {
-          codigo: match ? match.codigo : "CUSTOM-IMP",
+          codigo: (match ? match.codigo : "CUSTOM-IMP") + "-" + uid(),
+          baseCodigo: match ? match.codigo : undefined,
           desc: desc,
           um: um,
           precioBase: match ? match.precio : 0,
@@ -744,10 +752,32 @@ Reglas:
           justificacion: item.observaciones != null ? String(item.observaciones) : "",
         };
       })
-    ).filter((r) => r.desc.trim().length > 0);
-    addItems(toAdd);
-    setResultado(null);
-    setPliego("");
+    ).filter((r) => r != null && r.desc != null && String(r.desc).trim().length > 0);
+    const toAdd = flattened.slice(0, MAX_IMPORT_ITEMS);
+    if (flattened.length > MAX_IMPORT_ITEMS && typeof console !== "undefined" && console.warn) {
+      console.warn("[AI/Pliego] Import capped at", MAX_IMPORT_ITEMS, "items (total was", flattened.length, ")");
+    }
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] confirmarItems: flattened count =", flattened.length, ", toAdd count =", toAdd.length, ", first item =", toAdd[0] ? { codigo: toAdd[0].codigo, desc: (toAdd[0].desc || "").slice(0, 40), um: toAdd[0].um } : null);
+    }
+    if (toAdd.length === 0) {
+      setError("No hay ítems válidos para agregar.");
+      return;
+    }
+    try {
+      addItems(toAdd);
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[AI/Pliego] addItems called with", toAdd.length, "items");
+      }
+      setResultado(null);
+      setPliego("");
+      setError("");
+    } catch (err) {
+      if (typeof console !== "undefined" && console.error) {
+        console.error("[AI/Pliego] confirmarItems error:", err);
+      }
+      setError("Error al agregar ítems: " + (err && err.message ? err.message : String(err)));
+    }
   }
 
   return (
@@ -849,9 +879,10 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
   const iccFactor = 1 + proyecto.iccPct / 100;
 
   function addItems(newItems) {
-    const existing = new Set(proyecto.items.map((i) => i.codigo));
-    const toAdd = newItems.filter((i) => !existing.has(i.codigo));
-    updateProyecto(proyecto.id, { items: [...proyecto.items, ...toAdd] });
+    const safe = Array.isArray(newItems) ? newItems.filter((i) => i != null && i.codigo != null && String(i.codigo).trim() !== "") : [];
+    const existing = new Set((proyecto.items || []).map((i) => i && i.codigo).filter(Boolean));
+    const toAdd = safe.filter((i) => !existing.has(i.codigo));
+    updateProyecto(proyecto.id, { items: [...(proyecto.items || []), ...toAdd] });
   }
   function updateItem(codigo, patch) {
     updateProyecto(proyecto.id, { items: proyecto.items.map((i) => (i.codigo === codigo ? { ...i, ...patch } : i)) });
@@ -860,7 +891,7 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
     updateProyecto(proyecto.id, { items: proyecto.items.filter((i) => i.codigo !== codigo) });
   }
 
-  const totalPresup = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
+  const totalPresup = proyecto.items.reduce((s, i) => s + (i.cantPresup ?? 0) * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
   const alertasRojo = proyecto.items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "rojo").length;
 
   return (

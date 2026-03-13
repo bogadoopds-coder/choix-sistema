@@ -20,8 +20,8 @@ export default function ProjectsList({ proyectos, preciosActualizados, setActive
       </div>
       <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))" }}>
         {proyectos.map((p) => {
-          const total = p.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.codigo, i.precioBase, preciosActualizados)) * (1 + p.iccPct / 100), 0);
-          const alertas = p.items.filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "rojo").length;
+          const total = (p.items || []).reduce((s, i) => s + (i.cantPresup ?? 0) * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * (1 + (p.iccPct ?? 0) / 100), 0);
+          const alertas = (p.items || []).filter((i) => semaforo(i.consumidoReal, i.cantPresup) === "rojo").length;
           return (
             <div
               key={p.id}
@@ -42,7 +42,7 @@ export default function ProjectsList({ proyectos, preciosActualizados, setActive
                 </button>
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
-                <span style={S.tag(COLORS.blue)}>{p.items.length} ítems</span>
+                <span style={S.tag(COLORS.blue)}>{(p.items || []).length} ítems</span>
                 {alertas > 0 && <span style={S.tag(COLORS.rojo)}>⚠ {alertas} alerta{alertas !== 1 ? "s" : ""}</span>}
                 <span style={S.tag(COLORS.muted)}>ICC +{p.iccPct}%</span>
               </div>

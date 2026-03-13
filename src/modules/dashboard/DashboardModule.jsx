@@ -1,5 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { storage } from "../../services/storage";
+
+const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
+
+function itemSubtotal(it, iccPct = 0) {
+  const price = it.precioCustom ?? it.precioBase ?? 0;
+  const qty = it.cantPresup ?? 0;
+  return price * qty * (1 + (iccPct || 0) / 100);
+}
+
+function rubroFromItem(it) {
+  const c = (it.codigo || "").trim();
+  return /^\d{2}\.\d{2}/.test(c) ? c.slice(0, 6) : "Otros";
+}
 
 export default function DashboardModule() {
   const [proyectos, setProyectos] = useState([]);
@@ -13,27 +26,102 @@ export default function DashboardModule() {
   }, []);
 
   const obras = proyectos.filter((p) => p.activo !== false);
-  const totalPresupuestado = obras.reduce((sum, p) => {
-    const items = p.items || [];
-    return sum + items.reduce((s, it) => s + ((it.precioCustom ?? it.precioBase ?? 0) * (it.cantPresup ?? 0)) * (1 + (p.icc || 0) / 100), 0);
-  }, 0);
 
-  const alertasRojas = obras.flatMap((p) =>
-    (p.items || [])
-      .filter((it) => {
-        const consumido = it.consumidoReal ?? 0;
-        const presup = it.cantPresup ?? 0;
-        return presup > 0 && consumido / presup > 0.9;
-      })
-      .map((it) => ({ ...it, obra: p.nombre }))
+  const {
+    totalPresupuestado,
+    totalItems,
+    mostExpensiveItem,
+    mostExpensiveRubro,
+    mainRisk,
+    itemsWithSubtotal,
+    rubroTotals,
+    top5Items,
+    riskWarnings,
+  } = useMemo(() => {
+    const itemsWithSubtotal = [];
+    obras.forEach((p) => {
+      (p.items || []).forEach((it) => {
+        const sub = itemSubtotal(it, p.iccPct ?? p.icc);
+        itemsWithSubtotal.push({ proyecto: p, item: it, subtotal: sub, rubro: rubroFromItem(it) });
+      });
+    });
+    const totalPresupuestado = itemsWithSubtotal.reduce((s, x) => s + x.subtotal, 0);
+    const totalItems = itemsWithSubtotal.length;
+
+    const mostExpensiveItem =
+      itemsWithSubtotal.length === 0
+        ? null
+        : itemsWithSubtotal.reduce((best, x) => (x.subtotal > best.subtotal ? x : best), itemsWithSubtotal[0]);
+
+    const rubroMap = new Map();
+    itemsWithSubtotal.forEach(({ rubro, subtotal }) => {
+      rubroMap.set(rubro, (rubroMap.get(rubro) || 0) + subtotal);
+    });
+    const rubroTotals = [...rubroMap.entries()]
+      .map(([nombre, total]) => ({ nombre, total, pct: totalPresupuestado > 0 ? (100 * total) / totalPresupuestado : 0 }))
+      .sort((a, b) => b.total - a.total);
+    const mostExpensiveRubro = rubroTotals[0] || null;
+
+    const top5Items = [...itemsWithSubtotal].sort((a, b) => b.subtotal - a.subtotal).slice(0, 5);
+
+    const alertasRojas = itemsWithSubtotal.filter((x) => {
+      const presup = x.item.cantPresup ?? 0;
+      const consumido = x.item.consumidoReal ?? 0;
+      return presup > 0 && consumido / presup > 0.9;
+    });
+    const rubroAlto = rubroTotals.find((r) => r.pct >= 40);
+    const itemAlto = totalPresupuestado > 0 && mostExpensiveItem && mostExpensiveItem.subtotal / totalPresupuestado >= 0.2;
+
+    const riskWarnings = [];
+    if (rubroAlto) riskWarnings.push({ type: "rubro", text: `El rubro ${rubroAlto.nombre} representa el ${rubroAlto.pct.toFixed(0)}% del presupuesto.` });
+    if (itemAlto && mostExpensiveItem)
+      riskWarnings.push({
+        type: "item",
+        text: `Un ítem concentra el ${((100 * mostExpensiveItem.subtotal) / totalPresupuestado).toFixed(0)}% del presupuesto.`,
+      });
+
+    let mainRisk = "Sin alertas destacadas";
+    if (alertasRojas.length > 0) mainRisk = `${alertasRojas.length} ítem(s) con alerta roja (consumo >90%)`;
+    else if (rubroAlto) mainRisk = `Concentración en rubro ${rubroAlto.nombre} (${rubroAlto.pct.toFixed(0)}%)`;
+    else if (itemAlto) mainRisk = "Un ítem representa más del 20% del presupuesto";
+
+    return {
+      totalPresupuestado,
+      totalItems,
+      mostExpensiveItem,
+      mostExpensiveRubro,
+      mainRisk,
+      itemsWithSubtotal,
+      rubroTotals,
+      top5Items,
+      riskWarnings,
+    };
+  }, [obras]);
+
+  const alertasRojas = useMemo(
+    () =>
+      obras.flatMap((p) =>
+        (p.items || [])
+          .filter((it) => {
+            const consumido = it.consumidoReal ?? 0;
+            const presup = it.cantPresup ?? 0;
+            return presup > 0 && consumido / presup > 0.9;
+          })
+          .map((it) => ({ ...it, obra: p.nombre }))
+      ),
+    [obras]
   );
 
-  const top5obras = [...obras]
-    .sort((a, b) => {
-      const tot = (p) => (p.items || []).reduce((s, it) => s + ((it.precioCustom ?? it.precioBase ?? 0) * (it.cantPresup ?? 0)) * (1 + (p.icc || 0) / 100), 0);
-      return tot(b) - tot(a);
-    })
-    .slice(0, 5);
+  const top5obras = useMemo(
+    () =>
+      [...obras]
+        .sort((a, b) => {
+          const tot = (p) => (p.items || []).reduce((s, it) => s + itemSubtotal(it, p.iccPct ?? p.icc), 0);
+          return tot(b) - tot(a);
+        })
+        .slice(0, 5),
+    [obras]
+  );
 
   const TEAL = "#1A9B7B";
   const GOLD = "#c8a84b";
@@ -44,18 +132,80 @@ export default function DashboardModule() {
     <div style={{ padding: "20px", overflowY: "auto", height: "100%", background: "#0f1210" }}>
       <div style={{ fontWeight: 800, fontSize: "18px", color: "#d8e4de", marginBottom: "16px" }}>📊 Dashboard General</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "12px", marginBottom: "16px" }}>
+      {/* Top summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px", marginBottom: "16px" }}>
         {[
-          { label: "Obras activas", value: obras.length, color: TEAL },
-          { label: "Monto total presup.", value: new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(totalPresupuestado), color: GOLD },
-          { label: "Alertas semáforo 🔴", value: alertasRojas.length, color: ROJO },
+          { label: "Presupuesto total", value: ars(totalPresupuestado), color: GOLD },
+          { label: "Cantidad de ítems", value: totalItems, color: TEAL },
+          {
+            label: "Ítem más caro",
+            value: mostExpensiveItem
+              ? (() => {
+                  const d = mostExpensiveItem.item.desc || mostExpensiveItem.item.codigo || "—";
+                  return (d.length > 18 ? d.slice(0, 18) + "… " : d + " ") + ars(mostExpensiveItem.subtotal);
+                })()
+              : "—",
+            color: "#d8e4de",
+          },
+          {
+            label: "Rubro más caro",
+            value: mostExpensiveRubro ? `${mostExpensiveRubro.nombre} (${ars(mostExpensiveRubro.total)})` : "—",
+            color: "#d8e4de",
+          },
+          { label: "Riesgo / Alerta", value: mainRisk, color: alertasRojas.length > 0 ? ROJO : "#d8e4de" },
         ].map((k) => (
           <div key={k.label} style={card}>
             <div style={{ fontSize: "11px", color: "#4a6055", marginBottom: "6px" }}>{k.label}</div>
-            <div style={{ fontSize: "22px", fontWeight: 800, color: k.color }}>{k.value}</div>
+            <div style={{ fontSize: k.label === "Ítem más caro" || k.label === "Riesgo / Alerta" ? "12px" : "18px", fontWeight: 800, color: k.color, lineHeight: 1.25 }}>
+              {k.value}
+            </div>
           </div>
         ))}
       </div>
+
+      {/* Cost analysis by rubro */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Análisis por rubro</div>
+        {rubroTotals.length === 0 ? (
+          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
+        ) : (
+          rubroTotals.map((r) => (
+            <div key={r.nombre} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
+              <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
+              <span style={{ color: GOLD, fontWeight: 700 }}>
+                {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Top 5 most expensive items */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>🏆 Top 5 ítems más caros</div>
+        {top5Items.length === 0 ? (
+          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin datos</div>
+        ) : (
+          top5Items.map((x, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
+              <span style={{ color: "#d8e4de" }} title={x.item.desc}>#{i + 1} {(x.item.desc || x.item.codigo || "—").slice(0, 36)}{(x.item.desc && x.item.desc.length > 36 ? "…" : "")}</span>
+              <span style={{ color: GOLD, fontWeight: 700 }}>{ars(x.subtotal)}</span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Risk insights */}
+      {riskWarnings.length > 0 && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, color: ROJO, fontSize: "12px", marginBottom: "10px" }}>⚠️ Alertas de concentración</div>
+          {riskWarnings.map((w, i) => (
+            <div key={i} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px", color: "#d8e4de" }}>
+              {w.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>🏆 Top 5 obras por presupuesto</div>
@@ -63,11 +213,11 @@ export default function DashboardModule() {
           <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin datos</div>
         ) : (
           top5obras.map((p, i) => {
-            const tot = (p.items || []).reduce((s, it) => s + ((it.precioCustom ?? it.precioBase ?? 0) * (it.cantPresup ?? 0)) * (1 + (p.icc || 0) / 100), 0);
+            const tot = (p.items || []).reduce((s, it) => s + itemSubtotal(it, p.iccPct ?? p.icc), 0);
             return (
               <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
                 <span style={{ color: "#d8e4de" }}>#{i + 1} {p.nombre}</span>
-                <span style={{ color: GOLD, fontWeight: 700 }}>{new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(tot)}</span>
+                <span style={{ color: GOLD, fontWeight: 700 }}>{ars(tot)}</span>
               </div>
             );
           })

@@ -586,17 +586,121 @@ function TabIA({ proyecto, addItems, BASE }) {
   }
 
   /**
-   * Merge partial results: combine rubros and dedupe items by (desc, unidad, cantidad).
+   * Canonical rubro names for professional budget grouping.
+   * Variants are normalized to a single display name; generic names map to "Otros".
+   */
+  const RUBRO_NORMALIZE = {
+    "movimiento de suelos": "Movimiento de suelo",
+    "movimientos de suelo": "Movimiento de suelo",
+    "movimientos de suelos": "Movimiento de suelo",
+    "estructura h a": "Estructura resistente",
+    "estructura ha": "Estructura resistente",
+    "hormigon armado": "Estructura resistente",
+    "mamposteria": "Albañilería",
+    "albañileria": "Albañilería",
+    "hormigon": "Hormigón",
+    "concreto": "Hormigón",
+    "revoque": "Revoques",
+    "revoques": "Revoques",
+    "carpeta": "Carpeta y contrapiso",
+    "contrapiso": "Carpeta y contrapiso",
+    "pintura": "Pinturas",
+    "pinturas": "Pinturas",
+    "ceramica": "Cerámica",
+    "revestimiento": "Revestimientos",
+    "revestimientos": "Revestimientos",
+    "instalacion": "Instalaciones",
+    "instalaciones": "Instalaciones",
+    "terminacion": "Terminaciones",
+    "terminaciones": "Terminaciones",
+    "información general": "Otros",
+    "informacion general": "Otros",
+    "documento principal": "Otros",
+    "general": "Otros",
+    "otros": "Otros",
+  };
+  const RUBRO_ORDER = [
+    "Movimiento de suelo", "Estructura resistente", "Albañilería", "Hormigón", "Carpeta y contrapiso",
+    "Revoques", "Revestimientos", "Pinturas", "Cerámica", "Terminaciones", "Instalaciones", "Otros",
+  ];
+
+  function normalizeRubroName(raw) {
+    if (raw == null || typeof raw !== "string") return "Otros";
+    const t = raw.trim().replace(/\s+/g, " ");
+    if (!t) return "Otros";
+    const lower = t.toLowerCase();
+    const canonical = RUBRO_NORMALIZE[lower];
+    if (canonical) return canonical;
+    if (/movimiento\s+de\s+suelo/i.test(lower)) return "Movimiento de suelo";
+    if (/estructura\s+(resistente|h\s*a|ha)/i.test(lower) || /hormigon\s+armado/i.test(lower)) return "Estructura resistente";
+    if (/albañileria|mamposteria/i.test(lower)) return "Albañilería";
+    if (/revoque/i.test(lower)) return "Revoques";
+    if (/pintura/i.test(lower)) return "Pinturas";
+    if (/revestimiento/i.test(lower)) return "Revestimientos";
+    if (/instalacion/i.test(lower)) return "Instalaciones";
+    if (/terminacion/i.test(lower)) return "Terminaciones";
+    if (/carpeta|contrapiso/i.test(lower)) return "Carpeta y contrapiso";
+    if (/ceramica/i.test(lower)) return "Cerámica";
+    if (/hormigon|concreto/i.test(lower)) return "Hormigón";
+    if (/informacion\s+general|documento\s+principal/i.test(lower)) return "Otros";
+    return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+  }
+
+  /**
+   * Structure rubros: normalize names, merge same category, dedupe items by (desc|um|cant), stable order.
+   */
+  function structurePliegoRubros(rubros, logPrefix = "AI/Pliego") {
+    if (!Array.isArray(rubros) || rubros.length === 0) return { rubros: [], namesBefore: [], namesAfter: [] };
+    const namesBefore = rubros.map((r) => (r && r.nombre) || "General");
+    const byCanonical = new Map();
+    const seen = new Set();
+    for (let i = 0; i < rubros.length; i++) {
+      const rubro = rubros[i];
+      const rawName = (rubro && rubro.nombre) || "General";
+      const canonical = normalizeRubroName(rawName);
+      if (!byCanonical.has(canonical)) byCanonical.set(canonical, { nombre: canonical, items: [] });
+      const items = Array.isArray(rubro.items) ? rubro.items : [];
+      for (const it of items) {
+        if (!it || typeof it !== "object") continue;
+        const desc = (it.descripcion != null ? String(it.descripcion) : "").trim().toLowerCase();
+        const um = (it.unidad != null && String(it.unidad).trim()) || "UN";
+        const cant = Number(it.cantidad) || 0;
+        const key = `${desc}|${um}|${cant}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        byCanonical.get(canonical).items.push(it);
+      }
+    }
+    const namesAfter = [...byCanonical.keys()];
+    const ordered = [];
+    for (const name of RUBRO_ORDER) {
+      if (byCanonical.has(name)) ordered.push(byCanonical.get(name));
+    }
+    for (const name of byCanonical.keys()) {
+      if (!RUBRO_ORDER.includes(name)) ordered.push(byCanonical.get(name));
+    }
+    if (typeof console !== "undefined" && console.log) {
+      console.log(`[${logPrefix}] Rubro names before normalization:`, namesBefore);
+      console.log(`[${logPrefix}] Rubro names after normalization:`, namesAfter);
+      console.log(`[${logPrefix}] Final rubro count =`, ordered.length, "| item count per rubro:", ordered.map((r) => ({ [r.nombre]: (r.items || []).length })));
+    }
+    return { rubros: ordered, namesBefore, namesAfter };
+  }
+
+  /**
+   * Merge partial results: normalize rubros, combine same category, dedupe items by (desc, unidad, cantidad).
    */
   function mergePliegoResults(partials, obraFallback) {
     const seen = new Set();
-    const rubrosMap = new Map();
+    const byCanonical = new Map();
+    const namesBefore = [];
     for (const p of partials) {
       if (!p || !Array.isArray(p.rubros)) continue;
-      const obra = p.obra || obraFallback;
       for (const rubro of p.rubros) {
-        const name = (rubro && rubro.nombre) || "General";
-        if (!rubrosMap.has(name)) rubrosMap.set(name, { nombre: name, items: [] });
+        const rawName = (rubro && rubro.nombre) || "General";
+        namesBefore.push(rawName);
+        const canonical = normalizeRubroName(rawName);
+        if (!byCanonical.has(canonical)) byCanonical.set(canonical, { nombre: canonical, items: [] });
         const items = Array.isArray(rubro.items) ? rubro.items : [];
         for (const it of items) {
           if (!it || typeof it !== "object") continue;
@@ -606,12 +710,25 @@ function TabIA({ proyecto, addItems, BASE }) {
           const key = `${desc}|${um}|${cant}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          rubrosMap.get(name).items.push(it);
+          byCanonical.get(canonical).items.push(it);
         }
       }
     }
+    const namesAfter = [...byCanonical.keys()];
+    const ordered = [];
+    for (const name of RUBRO_ORDER) {
+      if (byCanonical.has(name)) ordered.push(byCanonical.get(name));
+    }
+    for (const name of byCanonical.keys()) {
+      if (!RUBRO_ORDER.includes(name)) ordered.push(byCanonical.get(name));
+    }
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] Merge: rubro names before normalization:", [...new Set(namesBefore)]);
+      console.log("[AI/Pliego] Merge: rubro names after normalization:", namesAfter);
+      console.log("[AI/Pliego] Merge: final rubro count =", ordered.length, "| item count per rubro:", ordered.map((r) => ({ [r.nombre]: (r.items || []).length })));
+    }
     const obra = (partials[0] && partials[0].obra) || obraFallback;
-    return { obra, rubros: [...rubrosMap.values()] };
+    return { obra, rubros: ordered };
   }
 
   /**
@@ -824,8 +941,8 @@ Reglas:
           setLoading(false);
           return;
         }
-        const rubros = parsed.rubros;
-        if (!Array.isArray(rubros) || rubros.length === 0) {
+        const rubrosRaw = parsed.rubros;
+        if (!Array.isArray(rubrosRaw) || rubrosRaw.length === 0) {
           setError("La IA devolvió JSON pero sin rubros válidos (rubros debe ser un array no vacío). Revisá la consola.");
           if (typeof console !== "undefined" && console.warn) {
             console.warn("[AI/Pliego] JSON parseado sin rubros válidos:", parsed);
@@ -833,6 +950,7 @@ Reglas:
           setLoading(false);
           return;
         }
+        const { rubros } = structurePliegoRubros(rubrosRaw, "AI/Pliego Single");
         setResultado({ obra: parsed.obra || proyecto.nombre, rubros });
       } else {
         const chunks = splitIntoChunks(text);

@@ -5,6 +5,7 @@ import { uid } from "../../utils/id";
 import { precioVigente, semaforo } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { sendChat } from "../../services/ai/chatClient";
+import { CHANDIAS_RENDIMIENTOS } from "../../data/chandiasRendimientos";
 
 // ─── SELECTOR BASE ────────────────────────────────────────────────────────────
 function SelectorBase({ BASE, onAdd, existentes }) {
@@ -1347,6 +1348,11 @@ DESCRIPCIÓN / PLIEGO:
 `;
 
   const pliegoPromptSuffix = `
+Tenés acceso a los rendimientos del Chandías para calcular precios de tareas compuestas. Cuando encuentres una tarea compuesta (ej: 'Losa llena H°A°', 'Revoque interior', 'Mampostería ladrillo hueco 18cm'), usá estos datos para estimar la composición de materiales y mano de obra por unidad:
+${JSON.stringify(CHANDIAS_RENDIMIENTOS, null, 0)}
+
+Usá estos rendimientos junto con los precios de materiales que conocés para estimar el precio unitario de cada tarea compuesta. Si no tenés el precio exacto de un material, usá un valor de mercado razonable para Argentina.
+
 Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes ni después, ni backticks ni explicaciones.
 Formato exacto (respeta los nombres de campos):
 

@@ -612,6 +612,8 @@ function parseComputeInteligente(wb) {
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
     if (aoa.length < 2) continue;
 
+    let pendiente = null;
+
     for (let r = 0; r < aoa.length; r++) {
       const row = Array.isArray(aoa[r]) ? aoa[r] : [];
       const colA = String(row[0] ?? "").trim();
@@ -654,6 +656,21 @@ function parseComputeInteligente(wb) {
         }
       }
 
+      const tieneNumero = /^\d+\.\d+/.test(colA) || /^\d+$/.test(colB);
+
+      // Si hay fila pendiente: esta fila puede ser continuación (tiene unidad+cantidad) o nuevo ítem (tiene número)
+      if (pendiente) {
+        if (unidad && cantidad > 0) {
+          const descCompleta = (pendiente.desc + " " + descRaw).trim();
+          const descEscaped = descCompleta.replace(/,/g, " ");
+          items.push({ numero: pendiente.numero, desc: descCompleta, unidad, cantidad, precio });
+          lineas.push(`${pendiente.numero},${descEscaped},${unidad},${cantidad},${precio}`);
+          pendiente = null;
+          continue;
+        }
+        if (tieneNumero) pendiente = null;
+      }
+
       // RUBRO: colA = número entero sin punto, descRaw > 3 caracteres → no agregar como ítem
       if (/^\d+$/.test(colA)) {
         currentRubroName = descRaw;
@@ -663,8 +680,14 @@ function parseComputeInteligente(wb) {
         continue;
       }
 
+      // Fila con número + descripción pero sin unidad/cantidad → guardar como pendiente (continuación en sig. fila)
+      if (tieneNumero && (!unidad || cantidad <= 0)) {
+        const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);
+        pendiente = { numero, desc: descRaw };
+        continue;
+      }
+
       // ÍTEM: descRaw > 3, unidad válida, cantidad > 0, (colA 1.1 o colB entero)
-      const tieneNumero = /^\d+\.\d+/.test(colA) || /^\d+$/.test(colB);
       if (!tieneNumero || !unidad || cantidad <= 0) continue;
 
       const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);

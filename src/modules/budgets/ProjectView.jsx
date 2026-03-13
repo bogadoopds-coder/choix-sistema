@@ -860,6 +860,7 @@ function TabIA({ proyecto, addItems, BASE }) {
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       const toAdd = [];
       for (const line of lines) {
+        if (line.startsWith("RUBRO:")) continue;
         const parsed = parsePliegoLine(line);
         if (parsed) {
           toAdd.push({
@@ -878,9 +879,16 @@ function TabIA({ proyecto, addItems, BASE }) {
         const cols = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
         if (cols.length < 2) continue;
         const [c0, c1, c2, c3, c4] = cols;
+        if (!c1 || c1.length < 4) continue;
+        if (/contemplan el retiro|contemplan carga|incluye colocaci[oó]n|incluyen colocaci[oó]n|manos necesarias/i.test(c1)) continue;
         const cant = parseFloat(String(c3).replace(",", ".")) || parseFloat(String(c2).replace(",", ".")) || 1;
         const precioCol = cols.length >= 5 ? parseFloat(String(c4).replace(",", ".")) : parseFloat(String(c4).replace(",", ".")) || parseFloat(String(c3).replace(",", ".")) || 0;
-        if (c1 && c1.length > 2) {
+        if (/^\d+$/.test(c0)) {
+          const umStr = (c2 && String(c2).trim()) || "";
+          const hasUnit = /^(m2|m²|m3|m³|ml|u|un|kg|tn|gl|dia|mes|nº|n°)$/i.test(umStr.replace(/\s/g, ""));
+          if (!hasUnit || cant <= 0) continue;
+        }
+        if (c1) {
           if (cols.length >= 5) {
             const desc = c1;
             const um = (c2 && String(c2).trim()) || "UN";

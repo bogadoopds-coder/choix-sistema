@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { ars } from "../../utils/format";
 import { uid } from "../../utils/id";
@@ -90,6 +90,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
   const [showSelector, setShowSelector] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const [customItem, setCustomItem] = useState({ desc: "", um: "UN", cantPresup: "1", precioCustom: "" });
+  const [expandedItem, setExpandedItem] = useState(null);
 
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
@@ -197,13 +198,20 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                 const subtotal = (item.cantPresup ?? 0) * precioFinal;
                 const sem = semaforo(item.consumidoReal, item.cantPresup);
                 const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
+                const isExpanded = expandedItem === item.codigo;
+                const mi = item.matchInfo;
                 return (
-                  <tr key={item.codigo}>
-                    <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
-                    <td style={{ ...S.td, maxWidth: "220px" }}>
-                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px" }} title={item.desc}>{item.desc}</div>
-                      {item.esCustom && <span style={S.tag(COLORS.purple)}>CUSTOM</span>}
-                    </td>
+                  <Fragment key={item.codigo}>
+                    <tr>
+                      <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
+                      <td
+                        style={{ ...S.td, maxWidth: "220px", cursor: "pointer", userSelect: "none" }}
+                        onClick={() => setExpandedItem(isExpanded ? null : item.codigo)}
+                        title="Click para ver info de matching"
+                      >
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px" }}>{item.desc}</div>
+                        {item.esCustom && <span style={S.tag(COLORS.purple)}>CUSTOM</span>}
+                      </td>
                     <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{item.um}</td>
                     <td style={S.td}>
                       <input type="number" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.cantPresup} onChange={(e) => updateItem(item.codigo, { cantPresup: parseFloat(e.target.value) || 0 })} />
@@ -235,6 +243,28 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                       <button style={{ ...S.btn("red", true), padding: "2px 7px" }} onClick={() => removeItem(item.codigo)}>✕</button>
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={10} style={{ ...S.td, padding: "8px 12px", verticalAlign: "top", borderBottom: "1px solid #1e2a22" }}>
+                        <div
+                          style={{
+                            background: COLORS.subtle,
+                            borderLeft: `4px solid ${mi?.matched ? COLORS.verde : mi && !mi.matched ? COLORS.rojo : COLORS.muted}`,
+                            padding: "8px 12px",
+                            fontSize: "11px",
+                            color: COLORS.text,
+                          }}
+                        >
+                          {mi?.matched
+                            ? `✅ Matcheó con ${mi.baseCodigo ?? ""} - ${mi.baseDesc ?? ""} (${(mi.palabrasMatch || []).length} palabras coincidentes: ${(mi.palabrasMatch || []).join(", ")})`
+                            : mi && !mi.matched
+                              ? `❌ Sin match. Palabras buscadas: ${(mi.palabrasBuscadas || []).join(", ")}. Mejor candidato: ${mi.mejorCandidato ?? ""} (${mi.overlapMejor ?? 0} coincidencias, mínimo requerido: ${mi.minRequerido ?? 0})`
+                              : "✏️ Ítem custom - sin matching automático"}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -349,11 +379,28 @@ function wordOverlapCount(wordsA, wordsB) {
   return wordsA.filter((w) => setB.has(w)).length;
 }
 
+// ─── Words that appear in both (for matchInfo.palabrasMatch)
+function wordsIntersection(wordsA, wordsB) {
+  const setB = new Set(wordsB);
+  return wordsA.filter((w) => setB.has(w));
+}
+
 // ─── Find best base-price match: word-similarity + same-unit preference; highest overlap wins.
+// Returns { codigo?, precio?, matchInfo } so caller can always store matchInfo (matched or not, best candidate).
 function findBestBaseMatch(desc, um, BASE) {
-  if (!BASE || !Array.isArray(BASE) || BASE.length === 0) return null;
+  const emptyMatchInfo = (palabrasBuscadas, mejorCandidato = "", overlapMejor = 0, minRequerido = 0) => ({
+    matched: false,
+    palabrasBuscadas,
+    mejorCandidato,
+    overlapMejor,
+    minRequerido,
+  });
+  if (!BASE || !Array.isArray(BASE) || BASE.length === 0) {
+    const tokensDesc = tokenizeForMatch(desc);
+    return { codigo: null, precio: null, matchInfo: emptyMatchInfo(tokensDesc) };
+  }
   const tokensDesc = tokenizeForMatch(desc);
-  if (tokensDesc.length === 0) return null;
+  if (tokensDesc.length === 0) return { codigo: null, precio: null, matchInfo: emptyMatchInfo([]) };
   const nUm = normalizeForMatch(um) || "un";
   const minOverlap = Math.min(2, tokensDesc.length);
 
@@ -361,20 +408,38 @@ function findBestBaseMatch(desc, um, BASE) {
   for (const b of BASE) {
     const tokensBase = tokenizeForMatch(b.desc);
     const overlap = wordOverlapCount(tokensDesc, tokensBase);
-    if (overlap < minOverlap) continue;
     scored.push({
       base: b,
       overlap,
       sameUnit: normalizeForMatch(b.um) === nUm,
+      tokensBase,
     });
   }
-  if (scored.length === 0) return null;
   scored.sort((a, b) => {
     if (a.sameUnit !== b.sameUnit) return b.sameUnit ? 1 : -1;
     return b.overlap - a.overlap;
   });
   const best = scored[0];
-  return best ? { codigo: best.base.codigo, precio: best.base.precio } : null;
+  if (!best) return { codigo: null, precio: null, matchInfo: emptyMatchInfo(tokensDesc) };
+  if (best.overlap >= minOverlap) {
+    const palabrasMatch = wordsIntersection(tokensDesc, best.tokensBase);
+    return {
+      codigo: best.base.codigo,
+      precio: best.base.precio,
+      matchInfo: {
+        matched: true,
+        baseCodigo: best.base.codigo,
+        baseDesc: best.base.desc,
+        overlap: best.overlap,
+        palabrasMatch,
+      },
+    };
+  }
+  return {
+    codigo: null,
+    precio: null,
+    matchInfo: emptyMatchInfo(tokensDesc, best.base.desc, best.overlap, minOverlap),
+  };
 }
 
 // ─── TAB IA / PLIEGO ──────────────────────────────────────────────────────────
@@ -1074,22 +1139,24 @@ Reglas:
         const desc = item.descripcion != null ? String(item.descripcion) : "";
         const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
         const match = findBestBaseMatch(desc, um, BASE);
-        if (match && typeof console !== "undefined" && console.log) {
+        const matched = match && match.codigo;
+        if (matched && typeof console !== "undefined" && console.log) {
           console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", match.codigo, "P.BASE:", match.precio);
-        } else if (!match && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
+        } else if (!matched && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
           console.log("[AI/Pliego] Unmatched:", desc.slice(0, 50), "(P.BASE = 0)");
         }
         return {
-          codigo: (match ? match.codigo : "CUSTOM-IMP") + "-" + uid(),
-          baseCodigo: match ? match.codigo : undefined,
+          codigo: (matched ? match.codigo : "CUSTOM-IMP") + "-" + uid(),
+          baseCodigo: matched ? match.codigo : undefined,
           desc: desc,
           um: um,
-          precioBase: match ? match.precio : 0,
+          precioBase: matched ? match.precio : 0,
           precioCustom: null,
           cantPresup: Number(item.cantidad) || 0,
           consumidoReal: 0,
-          esCustom: !match,
+          esCustom: !matched,
           justificacion: item.observaciones != null ? String(item.observaciones) : "",
+          matchInfo: match?.matchInfo ?? { matched: false, palabrasBuscadas: [], mejorCandidato: "", overlapMejor: 0, minRequerido: 0 },
         };
       })
     ).filter((r) => r != null && r.desc != null && String(r.desc).trim().length > 0);

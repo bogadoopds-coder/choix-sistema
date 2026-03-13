@@ -93,6 +93,26 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
 
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
+  function exportarExcel() {
+    const fecha = new Date().toLocaleDateString("es-AR");
+    const iccPct = ((iccFactor - 1) * 100).toFixed(0);
+    const encabezado = [["Obra", proyecto.nombre || "", "Código", proyecto.codigo || "", "Fecha", fecha, "ICC", `${iccPct}%`]];
+    const cols = ["Código", "Descripción", "UM", "Cantidad", "Precio Base", "Precio Custom", "Precio Final+ICC", "Subtotal"];
+    const filas = proyecto.items.map((i) => {
+      const codigoBase = i.baseCodigo ?? i.codigo;
+      const pBase = precioVigente(codigoBase, i.precioBase, preciosActualizados);
+      const precio = i.precioCustom ?? pBase;
+      const precioFinal = precio * iccFactor;
+      const subtotal = (i.cantPresup ?? 0) * precioFinal;
+      return [i.codigo, i.desc ?? "", i.um ?? "UN", i.cantPresup ?? 0, pBase, i.precioCustom ?? "", precioFinal, subtotal];
+    });
+    const aoa = [...encabezado, cols, ...filas, ["TOTAL PRESUPUESTO", "", "", "", "", "", "", total]];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Presupuesto");
+    XLSX.writeFile(wb, `Presupuesto_${(proyecto.codigo || "obra").replace(/\s+/g, "_")}.xlsx`);
+  }
+
   function addCustom() {
     if (!customItem.desc) return;
     addItems([
@@ -124,6 +144,7 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
           + ÍTEM CUSTOM
         </button>
         <span style={{ marginLeft: "auto", fontWeight: 700, color: COLORS.gold, fontSize: "14px" }}>{ars(total)}</span>
+        <button style={S.btn()} onClick={exportarExcel} disabled={proyecto.items.length === 0}>📥 EXPORTAR EXCEL</button>
       </div>
 
       {showSelector && <SelectorBase BASE={BASE} onAdd={(items) => { addItems(items); setShowSelector(false); }} existentes={proyecto.items.map((i) => i.codigo)} />}

@@ -597,7 +597,7 @@ function detectarFormatoCómputo(wb) {
 }
 
 const IGNORAR_DESC_COMUTO = /SUBTOTAL|TOTAL|PLANILLA|IF-20|Digitally|FIRMA|página|GDE|Series|% de avance|Monto de Inversión|HONORARIOS|Precio por m2/i;
-const UM_REGEX = /^(m2|m3|ml|u|un|kg|tn|gl|dia|mes|nº|n°)$/i;
+const UM_REGEX = /^(m2|m²|m3|m³|ml|u|un|kg|tn|gl|dia|mes|nº|n°)$/i;
 
 function parseComputeInteligente(wb) {
   const lineas = [];
@@ -616,8 +616,11 @@ function parseComputeInteligente(wb) {
       const row = Array.isArray(aoa[r]) ? aoa[r] : [];
       const colA = String(row[0] ?? "").trim();
       const colB = String(row[1] ?? "").trim();
-      const descRaw = String(row[2] ?? "").trim();
-      const descLower = descRaw.toLowerCase();
+      let descRaw = String(row[2] ?? "").trim();
+      // Fallback: si C está vacía (p. ej. celdas combinadas) y la fila parece ítem, usar B
+      if (!descRaw && (/^\d+\.\d+/.test(colA) || /^\d+$/.test(colB))) {
+        descRaw = String(row[1] ?? "").trim();
+      }
 
       if (!descRaw || descRaw.length <= 3) continue;
       if (IGNORAR_DESC_COMUTO.test(descRaw)) continue;

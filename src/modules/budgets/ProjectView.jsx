@@ -1113,21 +1113,20 @@ Formato exacto (respeta los nombres de campos):
 
 {"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"UN","cantidad":0,"observaciones":"cálculo o justificación"}]}]}
 
-IMPORTANTE: Cuando encuentres ítems que son TAREAS COMPUESTAS (ej: "Contrapiso armado sobre terreno natural", "Revoque completo interior"), descomponelos en los MATERIALES INDIVIDUALES que los componen. Por ejemplo:
-- "Contrapiso armado esp 12cm" → incluir: Hormigón H21, Malla electrosoldada, Arena, Cemento (con cantidades proporcionales a la superficie)
-- "Revoque grueso interior" → incluir: Arena, Cal, Cemento, Hidrófugo
-- "Mampostería de ladrillo hueco 18cm" → incluir: Ladrillo cerámico hueco 18x18x33, Arena, Cal, Cemento
+IMPORTANTE: Extraé TODOS los ítems individuales del pliego, tal como aparecen. NO resumas ni agrupes múltiples ítems en uno solo. Cada línea del pliego que tenga descripción + unidad + cantidad debe ser un ítem separado.
 
-Esto permite hacer matching con la base de precios de materiales.
-Si el pliego ya lista materiales individuales, dejalos como están.
-Si lista tareas compuestas, descomponelas en materiales.
+Si un ítem es una tarea compuesta (ej: "Contrapiso armado esp 12cm", "Revoque interior completo"), extraelo TAL CUAL aparece en el pliego con su descripción, unidad y cantidad originales.
+
+NO agrupes rubros enteros en un solo ítem genérico. Por ejemplo, si el pliego tiene 20 ítems de instalación eléctrica, extraé los 20 ítems individuales, NO un solo ítem "Instalación eléctrica completa".
+
+Máximo 50 ítems POR CHUNK. Si hay más, priorizá los de mayor monto.
 
 Reglas:
 - obra: string con el nombre de la obra.
 - rubros: array de objetos; cada uno tiene "nombre" (string) e "items" (array).
 - Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), observaciones (string).
 - Agrupá por rubros lógicos (ej. "Estructura", "Instalaciones", "Terminaciones"). Entre 1 y 15 rubros.
-- Cantidades conservadoras y realistas. Máximo 50 ítems en total.
+- Cantidades conservadoras y realistas. Máximo 50 ítems por fragmento.
 - Respuesta: solo el JSON, nada más.`;
 
   async function runOneChunkAnalysis(chunkText, chunkIndex, totalChunks) {

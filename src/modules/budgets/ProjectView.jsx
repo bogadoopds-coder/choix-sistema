@@ -566,6 +566,121 @@ function findBestBaseMatch(desc, um, BASE) {
   };
 }
 
+// ─── Detección y parseo inteligente de Excel de cómputo ─────────────────────
+const IGNORAR_FILAS_COMUTO = new Set([
+  "subtotal", "total", "planilla resumen", "plan de trabajo", "plan de trabajos",
+  "if-20", "if-2023", "digitally signed", "firma", "pagina", "página", "gde ", "series1",
+  "% de avance", "% incidencia", "monto de inversión", "honorarios",
+]);
+
+function detectarFormatoCómputo(wb) {
+  if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) return false;
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return false;
+  const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  let indicadores = 0;
+  const flat = aoa.slice(0, 15).flatMap((row) => (Array.isArray(row) ? row : [row]).map((c) => String(c ?? "").toLowerCase()));
+  if (flat.some((c) => /computo|presupuesto|designacion/.test(c))) indicadores++;
+  if (flat.some((c) => /unid|cant|precio|^\s*um\s*$|monto/.test(c))) indicadores++;
+  const hasRubro = aoa.slice(0, 30).some((row) => {
+    const arr = Array.isArray(row) ? row : [row];
+    const a = arr[0];
+    const n = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
+    const b = String(arr[1] ?? "").trim();
+    if (Number.isInteger(n) && n >= 1 && n <= 200 && b.length > 0 && b.length < 80) return true;
+    const dot = String(a).trim();
+    if (/^\d+\.\d+$/.test(dot) && b.length > 2) return true;
+    return false;
+  });
+  if (hasRubro) indicadores++;
+  return indicadores >= 2;
+}
+
+function parseComputeInteligente(wb) {
+  const lineas = [];
+  const rubros = [];
+  const items = [];
+  const umRegex = /^(m2|m3|ml|u|un|kg|tn|gl|unidad|lt|lts)$/i;
+
+  for (const sname of wb.SheetNames || []) {
+    const sheet = wb.Sheets[sname];
+    if (!sheet) continue;
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    if (aoa.length < 2) continue;
+
+    let colDesc = -1;
+    let colUm = -1;
+    let colCant = -1;
+    let colPrecio = -1;
+    for (let r = 0; r < Math.min(15, aoa.length); r++) {
+      const row = Array.isArray(aoa[r]) ? aoa[r] : [aoa[r]];
+      for (let c = 0; c < row.length; c++) {
+        const v = String(row[c] ?? "").toLowerCase();
+        if (/descripcion|designacion|detalle|item/.test(v) && colDesc < 0) colDesc = c;
+        if (/unid|um\s*$|unidad/.test(v) || v === "um") colUm = c;
+        if (/cant|cantidad/.test(v)) colCant = c;
+        if (/precio|unitario|p\.?\s*unit/.test(v) || /monto/.test(v)) colPrecio = c;
+      }
+    }
+    if (colDesc < 0) colDesc = 1;
+    if (colCant < 0) colCant = colDesc + 1;
+    if (colUm < 0) colUm = colDesc + 1;
+    if (colPrecio < 0) colPrecio = colDesc + 2;
+
+    let rubroActual = "";
+    for (let r = 0; r < aoa.length; r++) {
+      const row = Array.isArray(aoa[r]) ? aoa[r] : [];
+      const a = row[0];
+      const descCell = row[colDesc] != null ? String(row[colDesc]).trim() : "";
+      const raw = descCell.toLowerCase();
+      if (raw && [...IGNORAR_FILAS_COMUTO].some((k) => raw.includes(k))) continue;
+      if (/subtotal|^total\s|planilla resumen|plan de trabajo|if-20|digitally|firma|pagina|gde\s|series1|% de avance|% incidencia|monto de inversion|honorarios/i.test(raw)) continue;
+
+      const numA = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
+      const strA = String(a ?? "").trim();
+      const isRubro = Number.isInteger(numA) && numA >= 1 && numA <= 200 && !strA.includes(".") && descCell.length > 0 && descCell.length < 100 && descCell === descCell.toUpperCase();
+      const isItem = /^\d+\.\d+/.test(strA) || (Number.isFinite(numA) && numA > 0 && numA < 200 && strA.includes("."));
+
+      if (isRubro && descCell) {
+        rubroActual = descCell;
+        rubros.push(rubroActual);
+        lineas.push("RUBRO: " + rubroActual);
+        continue;
+      }
+      if (isItem && descCell) {
+        const um = (row[colUm] != null ? String(row[colUm]).trim() : "").replace(/\s/g, "") || "UN";
+        const cant = parseFloat(String(row[colCant] ?? "0").replace(",", ".")) || 0;
+        const precio = parseFloat(String(row[colPrecio] ?? "0").replace(",", ".")) || 0;
+        items.push({ desc: descCell, um, cant, precio });
+        lineas.push(`${strA},${descCell.replace(/,/g, " ")},${um},${cant},${precio}`);
+      }
+    }
+  }
+
+  if (typeof console !== "undefined" && console.log) {
+    console.log("[Excel cómputo] Formato detectado: cómputo de obra. Rubros:", rubros.length, "| Ítems:", items.length, "| Primeros 5:", items.slice(0, 5));
+  }
+  return lineas.join("\n");
+}
+
+function detectarCómputoEnTexto(texto) {
+  if (!texto || typeof texto !== "string") return false;
+  const lines = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let rubroCount = 0;
+  let itemCount = 0;
+  for (const line of lines.slice(0, 100)) {
+    const mRubro = line.match(/^\s*(\d{1,3})\s+([A-ZÁÉÍÓÚÑ\s\-]{4,80})/);
+    if (mRubro && !mRubro[1].includes(".")) {
+      rubroCount++;
+      continue;
+    }
+    const mItem = line.match(/^\s*(\d{1,3}\.\d{1,3})[\s.)\-]*(.*)/);
+    if (mItem && mItem[2].trim().length > 3) itemCount++;
+    if (/^\d[\d.]*\s+.+\s+(m2|m3|ml|un|u|kg|tn)\s+[\d,.]+\s*$/i.test(line)) itemCount++;
+  }
+  return rubroCount >= 1 && itemCount >= 2;
+}
+
 // ─── TAB IA / PLIEGO ──────────────────────────────────────────────────────────
 function TabIA({ proyecto, addItems, BASE }) {
   const [pliego, setPliego] = useState("");
@@ -628,6 +743,9 @@ function TabIA({ proyecto, addItems, BASE }) {
         } else {
           setFileWarning("");
         }
+        if (txt && detectarCómputoEnTexto(txt)) {
+          setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+        }
       } else if (ext === "xlsx" || ext === "xls") {
         const ab = await file.arrayBuffer();
         let wb;
@@ -639,15 +757,26 @@ function TabIA({ proyecto, addItems, BASE }) {
           return;
         }
         let text = "";
-        (wb.SheetNames || []).forEach((sname) => {
-          text += "--- Hoja: " + sname + " ---\n";
-          try {
-            text += XLSX.utils.sheet_to_csv(wb.Sheets[sname] || {}) + "\n";
-          } catch (_) {
-            text += "\n";
-          }
-        });
+        const esCómputo = detectarFormatoCómputo(wb);
+        if (esCómputo) {
+          text = parseComputeInteligente(wb);
+        }
+        if (!text) {
+          (wb.SheetNames || []).forEach((sname) => {
+            text += "--- Hoja: " + sname + " ---\n";
+            try {
+              text += XLSX.utils.sheet_to_csv(wb.Sheets[sname] || {}) + "\n";
+            } catch (_) {
+              text += "\n";
+            }
+          });
+        }
         setPliego(text || "");
+        if (esCómputo) {
+          setFileWarning("Excel interpretado como cómputo de obra.");
+        } else if (text && detectarCómputoEnTexto(text)) {
+          setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+        }
       } else if (ext === "csv") {
         const text = await file.text();
         setPliego(text != null ? String(text) : "");

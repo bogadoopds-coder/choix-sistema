@@ -674,6 +674,49 @@ function TabIA({ proyecto, addItems, BASE }) {
     return null;
   }
 
+  /**
+   * Preprocess pliego text before AI: keep ONLY lines that match useful computation patterns.
+   * Aggressive: discard everything that is not rubro title, numbered item, or row with units/technical content.
+   */
+  function preprocessPliegoForAnalysis(rawText) {
+    if (!rawText || typeof rawText !== "string") return "";
+    const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const discardPatterns = [
+      "ministerio", "provincia", "gobierno", "expediente", "artículo", "if-2023", "página",
+      "digitally signed", "firma", "aclaracion", "responsable", "referencia", "gedo",
+      "fecha computo", "hoja adicional", "la plata", "buenos aires",
+      "planilla resumen", "plan de trabajos", "plazo de ejecucion", "% incidencia", "% de avance",
+      "monto de inversión", "subtotal", "presupuesto total", "precio por m2 de edificación",
+    ];
+    const hasItemNumber = (l) => /^\d+\.\d+[\s.)\-]|^\d+[\s.)\-]/.test(l);
+    const unitRegex = /\b(m2|m3|ml|m\s*2|m\s*3|\bu\b|n°|kg|tn|gl|dia|mes|unidad|un\.?)\b/i;
+    const isRubroTitle = (l) => {
+      if (l.length > 70) return false;
+      return /^(estructura|albañileria|pinturas?|revestimientos?|instalaciones?|hormigon|excavacion|ceramica|mamposteria|contrapiso|carpeta|revoque|terminacion|obras)\b/i.test(l)
+        || /^[A-ZÁÉÍÓÚÑ\s\-]{4,60}$/.test(l);
+    };
+    const hasTechnicalKeyword = (l) => /\b(revoque|hormigon|excavacion|pintura|ceramica|mamposteria|contrapiso|carpeta|losa|viga|columna|platea|fundacion|muro|tabique|revestimiento|enduido|membrana|aislante|placa|cielorraso|ceramico|relleno|caño|cañeria|instalacion|puerta|ventana|abertura|pilotine|viga|mampuesto)\b/i.test(l);
+    const kept = [];
+    const discarded = [];
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      if (discardPatterns.some((p) => lower.includes(p))) {
+        discarded.push(line);
+        continue;
+      }
+      const matchesKeep = hasItemNumber(line) || unitRegex.test(line) || isRubroTitle(line) || hasTechnicalKeyword(line);
+      if (matchesKeep) kept.push(line);
+      else discarded.push(line);
+    }
+    const filteredText = kept.join("\n").trim();
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] Preprocess: original lines =", lines.length, "| kept =", kept.length, "| discarded =", discarded.length);
+      if (kept.length > 0) console.log("[AI/Pliego] First 10 kept:", kept.slice(0, 10));
+      if (discarded.length > 0) console.log("[AI/Pliego] First 10 discarded:", discarded.slice(0, 10));
+    }
+    return filteredText;
+  }
+
   const pliegoPromptPrefix = (chunkInfo) =>
     `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y extraé los rubros e ítems con cantidades.
 ${chunkInfo ? `(Fragmento ${chunkInfo} del pliego.)` : ""}
@@ -725,7 +768,8 @@ Reglas:
 
   async function analizarPliego() {
     if (!(pliego || "").trim()) return;
-    const text = pliego.trim();
+    const rawText = pliego.trim();
+    const text = preprocessPliegoForAnalysis(rawText) || rawText;
     setLoading(true);
     setError("");
     setResultado(null);
@@ -733,7 +777,7 @@ Reglas:
     const forceTabularChunk = looksLikeExcelOrTabular(text);
     const chunkMode = text.length > CHUNK_THRESHOLD || forceTabularChunk;
     if (typeof console !== "undefined" && console.log) {
-      console.log("[AI/Pliego] pliego text length =", text.length, "| chunk mode triggered =", chunkMode, "(threshold =", CHUNK_THRESHOLD, "| force tabular =", forceTabularChunk, ")");
+      console.log("[AI/Pliego] pliego text length (for analysis) =", text.length, "| chunk mode triggered =", chunkMode, "(threshold =", CHUNK_THRESHOLD, "| force tabular =", forceTabularChunk, ")");
     }
     try {
       if (!chunkMode) {

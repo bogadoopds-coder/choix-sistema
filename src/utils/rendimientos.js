@@ -56,8 +56,10 @@ export function getRendimientoMatch(desc, um, catalog) {
 
 /**
  * Find best matching rendimiento for (desc, um). Returns rendimiento (units per day) or null.
+ * Only returns a value for executable activities (actividad !== false); materials get null.
  */
 export function getRendimiento(desc, um, catalog) {
   const match = getRendimientoMatch(desc, um, catalog);
-  return match ? match.rendimiento : null;
+  if (!match || match.actividad === false) return null;
+  return match.rendimiento;
 }

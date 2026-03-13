@@ -20,15 +20,17 @@ function rubroFromItem(it) {
 
 function itemDiasEst(it) {
   const m = getRendimientoMatch(it.desc, it.um, RENDIMIENTOS);
-  const rend = m?.rendimiento;
+  if (!m || m.actividad === false) return null;
+  const rend = m.rendimiento;
   const qty = it.cantPresup ?? 0;
   return rend != null && rend > 0 ? qty / rend : null;
 }
 
 function itemLaborTotal(it) {
   const m = getRendimientoMatch(it.desc, it.um, RENDIMIENTOS);
-  const crewDaily = m?.crewId ? getCrewDailyCost(m.crewId, CREWS, WORKER_DAILY_COST) : 0;
-  const laborUnit = getLaborUnitCost(crewDaily, m?.rendimiento);
+  if (!m || m.actividad === false) return null;
+  const crewDaily = m.crewId ? getCrewDailyCost(m.crewId, CREWS, WORKER_DAILY_COST) : 0;
+  const laborUnit = getLaborUnitCost(crewDaily, m.rendimiento);
   return getLaborTotalCost(laborUnit, it.cantPresup ?? 0);
 }
 

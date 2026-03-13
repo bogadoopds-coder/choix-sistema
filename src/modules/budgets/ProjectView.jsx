@@ -181,11 +181,12 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                 const sem = semaforo(item.consumidoReal, item.cantPresup);
                 const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
                 const rendMatch = getRendimientoMatch(item.desc, item.um, RENDIMIENTOS);
-                const rend = rendMatch ? rendMatch.rendimiento : null;
+                const esActividad = rendMatch && rendMatch.actividad !== false;
+                const rend = esActividad && rendMatch ? rendMatch.rendimiento : null;
                 const diasEst = rend != null && rend > 0 ? item.cantPresup / rend : null;
-                const crewDaily = rendMatch?.crewId ? getCrewDailyCost(rendMatch.crewId, CREWS, WORKER_DAILY_COST) : 0;
+                const crewDaily = esActividad && rendMatch?.crewId ? getCrewDailyCost(rendMatch.crewId, CREWS, WORKER_DAILY_COST) : 0;
                 const laborUnit = getLaborUnitCost(crewDaily, rend);
-                const laborTotal = getLaborTotalCost(laborUnit, item.cantPresup);
+                const laborTotal = esActividad ? getLaborTotalCost(laborUnit, item.cantPresup) : null;
                 return (
                   <tr key={item.codigo}>
                     <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
@@ -255,8 +256,9 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                   {(() => {
                     const totalMO = proyecto.items.reduce((acc, i) => {
                       const m = getRendimientoMatch(i.desc, i.um, RENDIMIENTOS);
-                      const cd = m?.crewId ? getCrewDailyCost(m.crewId, CREWS, WORKER_DAILY_COST) : 0;
-                      const lu = getLaborUnitCost(cd, m?.rendimiento);
+                      if (!m || m.actividad === false) return acc;
+                      const cd = m.crewId ? getCrewDailyCost(m.crewId, CREWS, WORKER_DAILY_COST) : 0;
+                      const lu = getLaborUnitCost(cd, m.rendimiento);
                       const lt = getLaborTotalCost(lu, i.cantPresup);
                       return acc + (lt != null ? lt : 0);
                     }, 0);
@@ -579,6 +581,82 @@ function TabIA({ proyecto, addItems, BASE }) {
     }
   }
 
+  const CHUNK_THRESHOLD = 2500;
+  const CHUNK_MAX_SIZE = 3800;
+
+  /**
+   * Detect Excel/tabular content: many short lines, commas/semicolons, tabs, or spreadsheet-like rows.
+   * When true, chunk mode is forced to avoid fragile single-call JSON parsing.
+   */
+  function looksLikeExcelOrTabular(text) {
+    if (!text || typeof text !== "string") return false;
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 3) return false;
+    const avgLineLen = text.length / Math.max(lines.length, 1);
+    if (lines.length >= 5 && avgLineLen < 80) return true;
+    const commas = (text.match(/,/g) || []).length;
+    const semicolons = (text.match(/;/g) || []).length;
+    const separatorRatio = (commas + semicolons) / Math.max(text.length, 1);
+    if (separatorRatio > 0.02) return true;
+    const linesWithSep = lines.filter((l) => /[,;\t]/.test(l)).length;
+    if (linesWithSep >= Math.ceil(lines.length / 2) && lines.length >= 3) return true;
+    return false;
+  }
+
+  /**
+   * Split text into chunks by complete lines. No line is cut in the middle.
+   * Each chunk is at most CHUNK_MAX_SIZE characters.
+   */
+  function splitIntoChunks(text) {
+    if (!text || text.length <= CHUNK_THRESHOLD) return [text].filter(Boolean);
+    const lines = text.split(/\r?\n/);
+    const chunks = [];
+    let current = [];
+    let currentLen = 0;
+    for (const line of lines) {
+      const lineLen = line.length + 1;
+      if (currentLen + lineLen > CHUNK_MAX_SIZE && current.length > 0) {
+        chunks.push(current.join("\n"));
+        current = [line];
+        currentLen = lineLen;
+      } else {
+        current.push(line);
+        currentLen += lineLen;
+      }
+    }
+    if (current.length > 0) chunks.push(current.join("\n"));
+    return chunks;
+  }
+
+  /**
+   * Merge partial results: combine rubros and dedupe items by (desc, unidad, cantidad).
+   */
+  function mergePliegoResults(partials, obraFallback) {
+    const seen = new Set();
+    const rubrosMap = new Map();
+    for (const p of partials) {
+      if (!p || !Array.isArray(p.rubros)) continue;
+      const obra = p.obra || obraFallback;
+      for (const rubro of p.rubros) {
+        const name = (rubro && rubro.nombre) || "General";
+        if (!rubrosMap.has(name)) rubrosMap.set(name, { nombre: name, items: [] });
+        const items = Array.isArray(rubro.items) ? rubro.items : [];
+        for (const it of items) {
+          if (!it || typeof it !== "object") continue;
+          const desc = (it.descripcion != null ? String(it.descripcion) : "").trim().toLowerCase();
+          const um = (it.unidad != null && String(it.unidad).trim()) || "UN";
+          const cant = Number(it.cantidad) || 0;
+          const key = `${desc}|${um}|${cant}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rubrosMap.get(name).items.push(it);
+        }
+      }
+    }
+    const obra = (partials[0] && partials[0].obra) || obraFallback;
+    return { obra, rubros: [...rubrosMap.values()] };
+  }
+
   /**
    * Extracts and optionally repairs JSON from AI response text.
    * - Strips ```json ... ``` and ``` ... ``` wrappers
@@ -639,25 +717,17 @@ function TabIA({ proyecto, addItems, BASE }) {
     return null;
   }
 
-  async function analizarPliego() {
-    if (!(pliego || "").trim()) return;
-    setLoading(true);
-    setError("");
-    setResultado(null);
-    let rawResponse = null;
-    try {
-      const data = await sendChat({
-        messages: [
-          {
-            role: "user",
-            content: `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y extraé los rubros e ítems con cantidades.
+  const pliegoPromptPrefix = (chunkInfo) =>
+    `Sos un ingeniero de obra argentino. Analizá el siguiente pliego/descripción de obra y extraé los rubros e ítems con cantidades.
+${chunkInfo ? `(Fragmento ${chunkInfo} del pliego.)` : ""}
 
 OBRA: ${proyecto.nombre} (${proyecto.codigo})
 CLIENTE: ${proyecto.cliente}
 
 DESCRIPCIÓN / PLIEGO:
-${pliego}
+`;
 
+  const pliegoPromptSuffix = `
 Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes ni después, ni backticks ni explicaciones.
 Formato exacto (respeta los nombres de campos):
 
@@ -669,49 +739,126 @@ Reglas:
 - Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), observaciones (string).
 - Agrupá por rubros lógicos (ej. "Estructura", "Instalaciones", "Terminaciones"). Entre 1 y 15 rubros.
 - Cantidades conservadoras y realistas. Máximo 50 ítems en total.
-- Respuesta: solo el JSON, nada más.`,
-          },
-        ],
-      });
-      rawResponse = data;
-      if (data?.error) {
-        const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
-        setError("Error al analizar: " + errMsg);
-        setLoading(false);
-        return;
+- Respuesta: solo el JSON, nada más.`;
+
+  async function runOneChunkAnalysis(chunkText, chunkIndex, totalChunks) {
+    const chunkInfo = totalChunks > 1 ? `${chunkIndex + 1} de ${totalChunks}` : "";
+    const content = pliegoPromptPrefix(chunkInfo) + chunkText + pliegoPromptSuffix;
+    const data = await sendChat({
+      messages: [{ role: "user", content }],
+    });
+    if (data?.error) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[AI/Pliego] Chunk", chunkIndex + 1, "sendChat error:", data.error);
       }
-      const content = data?.content;
-      const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
-      if (typeof console !== "undefined" && console.log) {
-        console.log("[AI/Pliego] Raw AI response:", txt);
-      }
-      if (!txt) {
-        setError("La IA no devolvió texto. Revisá la consola (F12) para ver la respuesta.");
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn("[AI/Pliego] Respuesta sin contenido utilizable:", data);
+      return null;
+    }
+    const txt = (Array.isArray(data?.content) ? data.content.map((c) => (c && c.text) || "").join("") : (data?.content && typeof data.content === "string" ? data.content : "") || "").trim();
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] Chunk", chunkIndex + 1, "raw AI response length =", txt.length, "| first 400 chars:", txt.slice(0, 400));
+    }
+    const parsed = extractAndParseJson(txt);
+    if (typeof console !== "undefined" && console.log) {
+      const rubrosCount = parsed && Array.isArray(parsed.rubros) ? parsed.rubros.length : 0;
+      const itemsCount = parsed && Array.isArray(parsed.rubros) ? parsed.rubros.reduce((s, r) => s + (Array.isArray(r.items) ? r.items.length : 0), 0) : 0;
+      console.log("[AI/Pliego] Chunk", chunkIndex + 1, "JSON parsing succeeded =", parsed !== null, "| rubros =", rubrosCount, "| items extracted =", itemsCount);
+    }
+    return parsed;
+  }
+
+  async function analizarPliego() {
+    if (!(pliego || "").trim()) return;
+    const text = pliego.trim();
+    setLoading(true);
+    setError("");
+    setResultado(null);
+    let rawResponse = null;
+    const forceTabularChunk = looksLikeExcelOrTabular(text);
+    const chunkMode = text.length > CHUNK_THRESHOLD || forceTabularChunk;
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[AI/Pliego] pliego text length =", text.length, "| chunk mode triggered =", chunkMode, "(threshold =", CHUNK_THRESHOLD, "| force tabular =", forceTabularChunk, ")");
+    }
+    try {
+      if (!chunkMode) {
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Single-call path: sending request...");
         }
-        setLoading(false);
-        return;
-      }
-      const parsed = extractAndParseJson(txt);
-      if (parsed === null) {
-        setError("No se encontró JSON válido en la respuesta. Revisá la consola.");
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn("[AI/Pliego] No se pudo extraer/parsear JSON. Texto (primeros 800):", txt.slice(0, 800));
+        const data = await sendChat({
+          messages: [
+            {
+              role: "user",
+              content: pliegoPromptPrefix(null) + text + pliegoPromptSuffix,
+            },
+          ],
+        });
+        rawResponse = data;
+        if (data?.error) {
+          const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
+          setError("Error al analizar: " + errMsg);
+          setLoading(false);
+          return;
         }
-        setLoading(false);
-        return;
-      }
-      const rubros = parsed.rubros;
-      if (!Array.isArray(rubros) || rubros.length === 0) {
-        setError("La IA devolvió JSON pero sin rubros válidos (rubros debe ser un array no vacío). Revisá la consola.");
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn("[AI/Pliego] JSON parseado sin rubros válidos:", parsed);
+        const content = data?.content;
+        const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Raw AI response:", txt);
         }
-        setLoading(false);
-        return;
+        if (!txt) {
+          setError("La IA no devolvió texto. Revisá la consola (F12) para ver la respuesta.");
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn("[AI/Pliego] Respuesta sin contenido utilizable:", data);
+          }
+          setLoading(false);
+          return;
+        }
+        const parsed = extractAndParseJson(txt);
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Single-call: JSON parsing succeeded =", parsed !== null, parsed !== null ? "| rubros count =" : "", parsed !== null ? (parsed.rubros && parsed.rubros.length) : "");
+        }
+        if (parsed === null) {
+          setError("No se encontró JSON válido en la respuesta. Revisá la consola.");
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn("[AI/Pliego] No se pudo extraer/parsear JSON. Texto (primeros 800):", txt.slice(0, 800));
+          }
+          setLoading(false);
+          return;
+        }
+        const rubros = parsed.rubros;
+        if (!Array.isArray(rubros) || rubros.length === 0) {
+          setError("La IA devolvió JSON pero sin rubros válidos (rubros debe ser un array no vacío). Revisá la consola.");
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn("[AI/Pliego] JSON parseado sin rubros válidos:", parsed);
+          }
+          setLoading(false);
+          return;
+        }
+        setResultado({ obra: parsed.obra || proyecto.nombre, rubros });
+      } else {
+        const chunks = splitIntoChunks(text);
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Chunked analysis: number of chunks =", chunks.length, "| chunk sizes =", chunks.map((c) => c.length));
+        }
+        const partials = [];
+        for (let i = 0; i < chunks.length; i++) {
+          const parsed = await runOneChunkAnalysis(chunks[i], i, chunks.length);
+          const itemCount = parsed && Array.isArray(parsed.rubros) ? parsed.rubros.reduce((s, r) => s + (Array.isArray(r.items) ? r.items.length : 0), 0) : 0;
+          if (typeof console !== "undefined" && console.log) {
+            console.log("[AI/Pliego] Chunk", i + 1, "summary: items in this chunk =", itemCount, "| parse ok =", parsed !== null);
+          }
+          if (parsed && Array.isArray(parsed.rubros) && parsed.rubros.length > 0) partials.push(parsed);
+        }
+        const merged = mergePliegoResults(partials, proyecto.nombre);
+        const finalCount = (merged.rubros || []).reduce((s, r) => s + (Array.isArray(r.items) ? r.items.length : 0), 0);
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[AI/Pliego] Merged result: partials count =", partials.length, "| final rubros =", (merged.rubros || []).length, "| final item count =", finalCount);
+        }
+        if (merged.rubros.length === 0) {
+          setError("No se obtuvieron rubros válidos de ningún fragmento. Revisá la consola.");
+          setLoading(false);
+          return;
+        }
+        setResultado(merged);
       }
-      setResultado({ obra: parsed.obra || proyecto.nombre, rubros });
     } catch (e) {
       setError("Error al analizar: " + (e?.message || String(e)));
       if (typeof console !== "undefined" && console.warn) {

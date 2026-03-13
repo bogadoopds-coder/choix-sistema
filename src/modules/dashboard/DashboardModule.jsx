@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { storage } from "../../services/storage";
+import { precioVigente } from "../../utils/budgets";
 
 const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 
@@ -9,6 +10,19 @@ function itemSubtotal(it, iccPct = 0) {
   return price * qty * (1 + (iccPct || 0) / 100);
 }
 
+function itemSubtotalWithPrecios(it, iccPct, preciosActualizados) {
+  const codigoBase = it.baseCodigo ?? it.codigo;
+  const price = it.precioCustom ?? precioVigente(codigoBase, it.precioBase, preciosActualizados);
+  const qty = it.cantPresup ?? 0;
+  return price * qty * (1 + (iccPct || 0) / 100);
+}
+
+function itemConsumido(it, iccPct) {
+  const price = it.precioCustom ?? it.precioBase ?? 0;
+  const consumido = it.consumidoReal ?? 0;
+  return consumido * price * (1 + (iccPct || 0) / 100);
+}
+
 function rubroFromItem(it) {
   const c = (it.codigo || "").trim();
   return /^\d{2}\.\d{2}/.test(c) ? c.slice(0, 6) : "Otros";
@@ -16,11 +30,17 @@ function rubroFromItem(it) {
 
 export default function DashboardModule() {
   const [proyectos, setProyectos] = useState([]);
+  const [preciosActualizados, setPreciosActualizados] = useState({});
   useEffect(() => {
     (async () => {
       try {
         const r = await storage.get("choix_proyectos");
         if (r?.value) setProyectos(JSON.parse(r.value));
+      } catch {}
+      try {
+        let pr = await storage.get("choix_precios_actualizados");
+        if (!pr?.value) pr = await storage.get("choix_precios");
+        if (pr?.value) setPreciosActualizados(JSON.parse(pr.value));
       } catch {}
     })();
   }, []);
@@ -128,9 +148,42 @@ export default function DashboardModule() {
     [obras]
   );
 
+  const saludPorObra = useMemo(() => {
+    return obras.map((p) => {
+      const presupuestoTotal = (p.items || []).reduce((s, it) => s + itemSubtotal(it, p.iccPct ?? p.icc), 0);
+      const totalConsumido = (p.items || []).reduce((s, it) => s + itemConsumido(it, p.iccPct ?? p.icc), 0);
+      const pctAvance = presupuestoTotal > 0 ? (100 * totalConsumido) / presupuestoTotal : 0;
+      const desvio = totalConsumido - presupuestoTotal;
+      const desvioPct = presupuestoTotal > 0 ? (100 * desvio) / presupuestoTotal : 0;
+      return { proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct };
+    });
+  }, [obras]);
+
+  const resumenPrecios = useMemo(() => {
+    let totalOriginal = 0;
+    let totalActualizado = 0;
+    const codigosConActualizacion = new Set();
+    obras.forEach((p) => {
+      (p.items || []).forEach((it) => {
+        const codigoBase = it.baseCodigo ?? it.codigo;
+        const precioOrig = it.precioBase ?? 0;
+        const precioVig = precioVigente(codigoBase, it.precioBase, preciosActualizados);
+        const qty = it.cantPresup ?? 0;
+        const icc = 1 + (p.iccPct ?? p.icc ?? 0) / 100;
+        totalOriginal += qty * precioOrig * icc;
+        totalActualizado += qty * (it.precioCustom ?? precioVig) * icc;
+        if (preciosActualizados?.[codigoBase]?.length > 0) codigosConActualizacion.add(codigoBase);
+      });
+    });
+    const impacto = totalActualizado - totalOriginal;
+    const impactoPct = totalOriginal > 0 ? (100 * impacto) / totalOriginal : 0;
+    return { totalOriginal, totalActualizado, impacto, impactoPct, count: codigosConActualizacion.size, tieneDatos: Object.keys(preciosActualizados || {}).length > 0 };
+  }, [obras, preciosActualizados]);
+
   const TEAL = "#1A9B7B";
   const GOLD = "#c8a84b";
   const ROJO = "#e05a5a";
+  const AMARILLO = "#d4a84b";
   const card = { background: "#141a16", border: "1px solid #1e2a22", borderRadius: "10px", padding: "16px", marginBottom: "12px" };
 
   return (
@@ -168,6 +221,37 @@ export default function DashboardModule() {
         ))}
       </div>
 
+      {/* Salud financiera por obra */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "12px" }}>💚 Salud financiera por obra</div>
+        {saludPorObra.length === 0 ? (
+          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin obras activas</div>
+        ) : (
+          saludPorObra.map(({ proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct }) => {
+            const barColor = pctAvance < 80 ? TEAL : pctAvance <= 95 ? AMARILLO : ROJO;
+            return (
+              <div key={p.id} style={{ marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid #1e2a22" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "6px" }}>
+                  <span style={{ color: "#d8e4de", fontWeight: 600, fontSize: "12px" }}>{p.nombre}</span>
+                  <span style={{ color: "#4a6055", fontSize: "11px" }}>{p.codigo}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#4a6055", marginBottom: "4px" }}>
+                  <span>Presupuesto: {ars(presupuestoTotal)}</span>
+                  <span>Consumido: {ars(totalConsumido)}</span>
+                </div>
+                <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "6px" }}>% de avance: {pctAvance.toFixed(1)}%</div>
+                <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
+                  <div style={{ width: `${Math.min(100, pctAvance)}%`, height: "100%", background: barColor, borderRadius: "4px", transition: "width 0.2s" }} />
+                </div>
+                <div style={{ fontSize: "11px", color: desvio > 0 ? ROJO : "#4a6055" }}>
+                  Desvío: {desvio >= 0 ? "+" : ""}{ars(desvio)} ({desvio >= 0 ? "+" : ""}{desvioPct.toFixed(1)}%)
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* Cost analysis by rubro */}
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Análisis por rubro</div>
@@ -175,13 +259,34 @@ export default function DashboardModule() {
           <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
         ) : (
           rubroTotals.map((r) => (
-            <div key={r.nombre} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
-              <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
-              <span style={{ color: GOLD, fontWeight: 700 }}>
-                {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
-              </span>
+            <div key={r.nombre} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
+                <span style={{ color: GOLD, fontWeight: 700 }}>
+                  {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
+                </span>
+              </div>
+              <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(100, r.pct)}%`, height: "100%", background: TEAL, borderRadius: "3px", minWidth: r.pct > 0 ? "4px" : 0 }} />
+              </div>
             </div>
           ))
+        )}
+      </div>
+
+      {/* Resumen de precios actualizados */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📌 Resumen de precios actualizados</div>
+        {!resumenPrecios.tieneDatos ? (
+          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin actualizaciones de precios</div>
+        ) : (
+          <div style={{ fontSize: "12px", color: "#d8e4de" }}>
+            <div style={{ marginBottom: "6px" }}>Productos con precio actualizado: <strong style={{ color: GOLD }}>{resumenPrecios.count}</strong></div>
+            <div style={{ marginBottom: "6px" }}>Impacto total: <strong style={{ color: resumenPrecios.impacto >= 0 ? ROJO : TEAL }}>{ars(resumenPrecios.impacto)}</strong></div>
+            <div style={{ color: "#4a6055", fontSize: "11px" }}>
+              Los precios actualizados impactan en {resumenPrecios.impacto >= 0 ? "+" : ""}{ars(resumenPrecios.impacto)} ({resumenPrecios.impacto >= 0 ? "+" : ""}{resumenPrecios.impactoPct.toFixed(1)}%) sobre el presupuesto original.
+            </div>
+          </div>
         )}
       </div>
 

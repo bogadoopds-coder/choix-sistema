@@ -647,13 +647,50 @@ function TabIA({ proyecto, addItems, BASE }) {
   }
 
   /**
-   * Structure rubros: normalize names, merge same category, dedupe items by (desc|um|cant), stable order.
+   * Normalize item description for deduplication: lowercase, no accents, no repeated spaces,
+   * strip unit tokens (m2, m3, ml, u, kg, tn, etc.), no trailing punctuation, trim.
+   */
+  function normalizeItemDescription(desc) {
+    if (desc == null || typeof desc !== "string") return "";
+    let s = desc
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/\s+/g, " ");
+    s = s.replace(/\b(m2|m3|ml|m\s*2|m\s*3|\bu\b|n°|kg|tn|gl|dia|mes|unidad|un\.?|m²|m³)\b/gi, " ").replace(/\s+/g, " ").trim();
+    s = s.replace(/[.,;:]+$/, "").trim();
+    return s;
+  }
+
+  /**
+   * Normalize unit to canonical form: m²/M2/m 2 → m2, m³/M3 → m3, ml/ML → ml, u/un/unidad → u, etc.
+   */
+  function normalizeUnit(um) {
+    if (um == null || typeof um !== "string") return "u";
+    const t = um.trim().toLowerCase().replace(/\s+/g, "").replace(/²/g, "2").replace(/³/g, "3");
+    if (t === "m2") return "m2";
+    if (t === "m3") return "m3";
+    if (t === "ml") return "ml";
+    if (t === "u" || t === "un" || t === "unidad") return "u";
+    if (t === "kg") return "kg";
+    if (t === "tn") return "tn";
+    if (t === "gl") return "gl";
+    if (t === "dia") return "dia";
+    if (t === "mes") return "mes";
+    return t || "u";
+  }
+
+  /**
+   * Structure rubros: normalize names, merge same category, dedupe items by (normalizedDesc|normalizedUnit), stable order.
    */
   function structurePliegoRubros(rubros, logPrefix = "AI/Pliego") {
     if (!Array.isArray(rubros) || rubros.length === 0) return { rubros: [], namesBefore: [], namesAfter: [] };
     const namesBefore = rubros.map((r) => (r && r.nombre) || "General");
     const byCanonical = new Map();
     const seen = new Set();
+    let duplicatesCount = 0;
+    const normalizedSamples = [];
     for (let i = 0; i < rubros.length; i++) {
       const rubro = rubros[i];
       const rawName = (rubro && rubro.nombre) || "General";
@@ -662,11 +699,16 @@ function TabIA({ proyecto, addItems, BASE }) {
       const items = Array.isArray(rubro.items) ? rubro.items : [];
       for (const it of items) {
         if (!it || typeof it !== "object") continue;
-        const desc = (it.descripcion != null ? String(it.descripcion) : "").trim().toLowerCase();
-        const um = (it.unidad != null && String(it.unidad).trim()) || "UN";
-        const cant = Number(it.cantidad) || 0;
-        const key = `${desc}|${um}|${cant}`;
-        if (seen.has(key)) continue;
+        const rawDesc = (it.descripcion != null ? String(it.descripcion) : "").trim();
+        const rawUm = (it.unidad != null && String(it.unidad).trim()) || "UN";
+        const normDesc = normalizeItemDescription(rawDesc);
+        const normUm = normalizeUnit(rawUm);
+        if (normalizedSamples.length < 5) normalizedSamples.push({ raw: rawDesc, normalized: normDesc, unit: normUm });
+        const key = `${normDesc}|${normUm}`;
+        if (seen.has(key)) {
+          duplicatesCount++;
+          continue;
+        }
         seen.add(key);
         byCanonical.get(canonical).items.push(it);
       }
@@ -682,18 +724,22 @@ function TabIA({ proyecto, addItems, BASE }) {
     if (typeof console !== "undefined" && console.log) {
       console.log(`[${logPrefix}] Rubro names before normalization:`, namesBefore);
       console.log(`[${logPrefix}] Rubro names after normalization:`, namesAfter);
+      console.log(`[${logPrefix}] Item normalization (sample):`, normalizedSamples);
+      console.log(`[${logPrefix}] Duplicates detected:`, duplicatesCount);
       console.log(`[${logPrefix}] Final rubro count =`, ordered.length, "| item count per rubro:", ordered.map((r) => ({ [r.nombre]: (r.items || []).length })));
     }
     return { rubros: ordered, namesBefore, namesAfter };
   }
 
   /**
-   * Merge partial results: normalize rubros, combine same category, dedupe items by (desc, unidad, cantidad).
+   * Merge partial results: normalize rubros and items, combine same category, dedupe by (normalizedDesc|normalizedUnit).
    */
   function mergePliegoResults(partials, obraFallback) {
     const seen = new Set();
     const byCanonical = new Map();
     const namesBefore = [];
+    let duplicatesCount = 0;
+    const normalizedSamples = [];
     for (const p of partials) {
       if (!p || !Array.isArray(p.rubros)) continue;
       for (const rubro of p.rubros) {
@@ -704,11 +750,16 @@ function TabIA({ proyecto, addItems, BASE }) {
         const items = Array.isArray(rubro.items) ? rubro.items : [];
         for (const it of items) {
           if (!it || typeof it !== "object") continue;
-          const desc = (it.descripcion != null ? String(it.descripcion) : "").trim().toLowerCase();
-          const um = (it.unidad != null && String(it.unidad).trim()) || "UN";
-          const cant = Number(it.cantidad) || 0;
-          const key = `${desc}|${um}|${cant}`;
-          if (seen.has(key)) continue;
+          const rawDesc = (it.descripcion != null ? String(it.descripcion) : "").trim();
+          const rawUm = (it.unidad != null && String(it.unidad).trim()) || "UN";
+          const normDesc = normalizeItemDescription(rawDesc);
+          const normUm = normalizeUnit(rawUm);
+          if (normalizedSamples.length < 5) normalizedSamples.push({ raw: rawDesc, normalized: normDesc, unit: normUm });
+          const key = `${normDesc}|${normUm}`;
+          if (seen.has(key)) {
+            duplicatesCount++;
+            continue;
+          }
           seen.add(key);
           byCanonical.get(canonical).items.push(it);
         }
@@ -725,6 +776,8 @@ function TabIA({ proyecto, addItems, BASE }) {
     if (typeof console !== "undefined" && console.log) {
       console.log("[AI/Pliego] Merge: rubro names before normalization:", [...new Set(namesBefore)]);
       console.log("[AI/Pliego] Merge: rubro names after normalization:", namesAfter);
+      console.log("[AI/Pliego] Merge: item normalization (sample):", normalizedSamples);
+      console.log("[AI/Pliego] Merge: duplicates detected:", duplicatesCount);
       console.log("[AI/Pliego] Merge: final rubro count =", ordered.length, "| item count per rubro:", ordered.map((r) => ({ [r.nombre]: (r.items || []).length })));
     }
     const obra = (partials[0] && partials[0].obra) || obraFallback;

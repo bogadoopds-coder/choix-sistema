@@ -91,6 +91,8 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
   const [showCustom, setShowCustom] = useState(false);
   const [customItem, setCustomItem] = useState({ desc: "", um: "UN", cantPresup: "1", precioCustom: "" });
   const [expandedItem, setExpandedItem] = useState(null);
+  const [precioDiag, setPrecioDiag] = useState({});
+  const [precioApplied, setPrecioApplied] = useState(null);
 
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
@@ -255,11 +257,46 @@ function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem,
                             color: COLORS.text,
                           }}
                         >
-                          {mi?.matched
-                            ? `✅ Matcheó con ${mi.baseCodigo ?? ""} - ${mi.baseDesc ?? ""} (${(mi.palabrasMatch || []).length} palabras coincidentes: ${(mi.palabrasMatch || []).join(", ")})`
-                            : mi && !mi.matched
+                          <div style={{ marginBottom: (!mi || !mi.matched || item.precioBase === 0) && !item.esCustom ? "6px" : 0 }}>
+                            {mi?.matched
+                              ? `✅ Matcheó con ${mi.baseCodigo ?? ""} - ${mi.baseDesc ?? ""} (${(mi.palabrasMatch || []).length} palabras coincidentes: ${(mi.palabrasMatch || []).join(", ")})`
+                              : mi && !mi.matched
                               ? `❌ Sin match. Palabras buscadas: ${(mi.palabrasBuscadas || []).join(", ")}. Mejor candidato: ${mi.mejorCandidato ?? ""} (${mi.overlapMejor ?? 0} coincidencias, mínimo requerido: ${mi.minRequerido ?? 0})`
                               : "✏️ Ítem custom - sin matching automático"}
+                          </div>
+                          {!item.esCustom && ((!mi || !mi.matched) || (item.precioBase ?? 0) === 0) && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+                              <input
+                                type="number"
+                                placeholder="Precio unitario $"
+                                style={{ ...S.input, width: "140px", textAlign: "right" }}
+                                value={precioDiag[item.codigo] ?? ""}
+                                onChange={(e) =>
+                                  setPrecioDiag((prev) => ({
+                                    ...prev,
+                                    [item.codigo]: e.target.value,
+                                  }))
+                                }
+                              />
+                              <button
+                                style={S.btn("gold", true)}
+                                onClick={() => {
+                                  const raw = precioDiag[item.codigo];
+                                  const val = raw === "" || raw == null ? NaN : parseFloat(raw);
+                                  if (!isNaN(val) && val >= 0) {
+                                    updateItem(item.codigo, { precioCustom: val });
+                                    setPrecioApplied(item.codigo);
+                                    setTimeout(() => setPrecioApplied((prev) => (prev === item.codigo ? null : prev)), 2000);
+                                  }
+                                }}
+                              >
+                                Aplicar precio
+                              </button>
+                              {precioApplied === item.codigo && (
+                                <span style={{ fontSize: "11px", color: COLORS.verde }}>✅ Precio aplicado</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -353,6 +390,92 @@ function TabSemaforo({ proyecto, iccFactor, updateItem, preciosActualizados }) {
 // ─── Construction filler words to remove before word-based matching
 const STOPWORDS = new Set(["de", "del", "para", "segun", "incluye", "tipo", "obra"]);
 
+// ─── Generic words that should NOT count for overlap when matching (colors, medidas, etc.)
+const PALABRAS_GENERICAS = new Set([
+  "color",
+  "negro",
+  "blanco",
+  "gris",
+  "rojo",
+  "azul",
+  "verde",
+  "amarillo",
+  "mm",
+  "cm",
+  "mts",
+  "x",
+  "con",
+  "sin",
+  "mas",
+  "menos",
+  "200",
+  "100",
+  "150",
+  "250",
+  "300",
+  "400",
+  "500",
+  "esp",
+  "espesor",
+  "alto",
+  "ancho",
+  "largo",
+  "zona",
+  "modelo",
+  "marca",
+  "tipo",
+  "nro",
+  "numero",
+  "lts",
+  "film",
+  "rollo",
+  "bolsa",
+  "bolson",
+  "balde",
+]);
+
+// ─── Construction keywords that must appear in a valid match (at least one)
+const PALABRAS_CLAVE_CONSTRUCCION = new Set([
+  "hormigon",
+  "cemento",
+  "arena",
+  "cal",
+  "hierro",
+  "acero",
+  "malla",
+  "ladrillo",
+  "ceramico",
+  "membrana",
+  "pintura",
+  "latex",
+  "esmalte",
+  "revoque",
+  "contrapiso",
+  "carpeta",
+  "caño",
+  "cañeria",
+  "tubo",
+  "cable",
+  "llave",
+  "valvula",
+  "tanque",
+  "puerta",
+  "ventana",
+  "vidrio",
+  "placa",
+  "yeso",
+  "clavo",
+  "tornillo",
+  "adhesivo",
+  "impermeabilizante",
+  "aislante",
+  "chapa",
+  "madera",
+  "fenolico",
+  "piedra",
+  "grava",
+]);
+
 // ─── Normalize text: lowercase, remove accents, remove symbols (Ø ° . , ( ) / etc.), collapse spaces
 function normalizeForMatch(s) {
   if (s == null || typeof s !== "string") return "";
@@ -373,16 +496,16 @@ function tokenizeForMatch(s) {
   return n.split(/\s+/).filter((w) => w.length > 0 && !STOPWORDS.has(w));
 }
 
-// ─── Word overlap count (intersection size)
+// ─── Word overlap count (intersection size), ignoring generic words
 function wordOverlapCount(wordsA, wordsB) {
-  const setB = new Set(wordsB);
-  return wordsA.filter((w) => setB.has(w)).length;
+  const setB = new Set(wordsB.filter((w) => !PALABRAS_GENERICAS.has(w)));
+  return wordsA.filter((w) => setB.has(w) && !PALABRAS_GENERICAS.has(w)).length;
 }
 
-// ─── Words that appear in both (for matchInfo.palabrasMatch)
+// ─── Words that appear in both (for matchInfo.palabrasMatch), ignoring generic words
 function wordsIntersection(wordsA, wordsB) {
-  const setB = new Set(wordsB);
-  return wordsA.filter((w) => setB.has(w));
+  const setB = new Set(wordsB.filter((w) => !PALABRAS_GENERICAS.has(w)));
+  return wordsA.filter((w) => setB.has(w) && !PALABRAS_GENERICAS.has(w));
 }
 
 // ─── Find best base-price match: word-similarity + same-unit preference; highest overlap wins.
@@ -421,8 +544,9 @@ function findBestBaseMatch(desc, um, BASE) {
   });
   const best = scored[0];
   if (!best) return { codigo: null, precio: null, matchInfo: emptyMatchInfo(tokensDesc) };
-  if (best.overlap >= minOverlap) {
-    const palabrasMatch = wordsIntersection(tokensDesc, best.tokensBase);
+  const palabrasMatch = wordsIntersection(tokensDesc, best.tokensBase);
+  const tieneClave = (palabrasMatch || []).some((w) => PALABRAS_CLAVE_CONSTRUCCION.has(w));
+  if (best.overlap >= minOverlap && tieneClave) {
     return {
       codigo: best.base.codigo,
       precio: best.base.precio,
@@ -988,6 +1112,15 @@ Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes
 Formato exacto (respeta los nombres de campos):
 
 {"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"UN","cantidad":0,"observaciones":"cálculo o justificación"}]}]}
+
+IMPORTANTE: Cuando encuentres ítems que son TAREAS COMPUESTAS (ej: "Contrapiso armado sobre terreno natural", "Revoque completo interior"), descomponelos en los MATERIALES INDIVIDUALES que los componen. Por ejemplo:
+- "Contrapiso armado esp 12cm" → incluir: Hormigón H21, Malla electrosoldada, Arena, Cemento (con cantidades proporcionales a la superficie)
+- "Revoque grueso interior" → incluir: Arena, Cal, Cemento, Hidrófugo
+- "Mampostería de ladrillo hueco 18cm" → incluir: Ladrillo cerámico hueco 18x18x33, Arena, Cal, Cemento
+
+Esto permite hacer matching con la base de precios de materiales.
+Si el pliego ya lista materiales individuales, dejalos como están.
+Si lista tareas compuestas, descomponelas en materiales.
 
 Reglas:
 - obra: string con el nombre de la obra.

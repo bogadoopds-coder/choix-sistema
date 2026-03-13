@@ -596,69 +596,84 @@ function detectarFormatoCómputo(wb) {
   return indicadores >= 2;
 }
 
+const IGNORAR_DESC_COMUTO = /SUBTOTAL|TOTAL|PLANILLA|IF-20|Digitally|FIRMA|página|GDE|Series|% de avance|Monto de Inversión|HONORARIOS|Precio por m2/i;
+const UM_REGEX = /^(m2|m3|ml|u|un|kg|tn|gl|dia|mes|nº|n°)$/i;
+
 function parseComputeInteligente(wb) {
   const lineas = [];
   const rubros = [];
   const items = [];
-  const umRegex = /^(m2|m3|ml|u|un|kg|tn|gl|unidad|lt|lts)$/i;
+  let currentRubroName = "";
+  let currentRubroNum = "";
 
   for (const sname of wb.SheetNames || []) {
-    const sheet = wb.Sheets[sname];
-    if (!sheet) continue;
-    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    const ws = wb.Sheets[sname];
+    if (!ws) continue;
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
     if (aoa.length < 2) continue;
 
-    let colDesc = -1;
-    let colUm = -1;
-    let colCant = -1;
-    let colPrecio = -1;
-    for (let r = 0; r < Math.min(15, aoa.length); r++) {
-      const row = Array.isArray(aoa[r]) ? aoa[r] : [aoa[r]];
-      for (let c = 0; c < row.length; c++) {
-        const v = String(row[c] ?? "").toLowerCase();
-        if (/descripcion|designacion|detalle|item/.test(v) && colDesc < 0) colDesc = c;
-        if (/unid|um\s*$|unidad/.test(v) || v === "um") colUm = c;
-        if (/cant|cantidad/.test(v)) colCant = c;
-        if (/precio|unitario|p\.?\s*unit/.test(v) || /monto/.test(v)) colPrecio = c;
-      }
-    }
-    if (colDesc < 0) colDesc = 1;
-    if (colCant < 0) colCant = colDesc + 1;
-    if (colUm < 0) colUm = colDesc + 1;
-    if (colPrecio < 0) colPrecio = colDesc + 2;
-
-    let rubroActual = "";
     for (let r = 0; r < aoa.length; r++) {
       const row = Array.isArray(aoa[r]) ? aoa[r] : [];
-      const a = row[0];
-      const descCell = row[colDesc] != null ? String(row[colDesc]).trim() : "";
-      const raw = descCell.toLowerCase();
-      if (raw && [...IGNORAR_FILAS_COMUTO].some((k) => raw.includes(k))) continue;
-      if (/subtotal|^total\s|planilla resumen|plan de trabajo|if-20|digitally|firma|pagina|gde\s|series1|% de avance|% incidencia|monto de inversion|honorarios/i.test(raw)) continue;
+      const colA = String(row[0] ?? "").trim();
+      const colB = String(row[1] ?? "").trim();
+      const descRaw = String(row[2] ?? "").trim();
+      const descLower = descRaw.toLowerCase();
 
-      const numA = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
-      const strA = String(a ?? "").trim();
-      const isRubro = Number.isInteger(numA) && numA >= 1 && numA <= 200 && !strA.includes(".") && descCell.length > 0 && descCell.length < 100 && descCell === descCell.toUpperCase();
-      const isItem = /^\d+\.\d+/.test(strA) || (Number.isFinite(numA) && numA > 0 && numA < 200 && strA.includes("."));
+      if (!descRaw || descRaw.length <= 3) continue;
+      if (IGNORAR_DESC_COMUTO.test(descRaw)) continue;
 
-      if (isRubro && descCell) {
-        rubroActual = descCell;
-        rubros.push(rubroActual);
-        lineas.push("RUBRO: " + rubroActual);
+      // Unidad: columnas 8–11, primera que matchee UM
+      let colUm = -1;
+      let unidad = "";
+      for (let c = 8; c <= 11; c++) {
+        const v = String(row[c] ?? "").trim().replace(/\s/g, "");
+        if (UM_REGEX.test(v)) {
+          colUm = c;
+          unidad = v;
+          break;
+        }
+      }
+      // Cantidad: celda numérica inmediatamente después de la columna de unidad
+      let cantidad = 0;
+      if (colUm >= 0 && row[colUm + 1] != null) {
+        const v = row[colUm + 1];
+        const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+        if (Number.isFinite(n)) cantidad = n;
+      }
+      // Precio: columnas 11–14, primer número > 0 que no sea la cantidad
+      let precio = 0;
+      for (let c = 11; c <= 14; c++) {
+        const v = row[c];
+        const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+        if (Number.isFinite(n) && n > 0 && n !== cantidad) {
+          precio = n;
+          break;
+        }
+      }
+
+      // RUBRO: colA = número entero sin punto, descRaw > 3 caracteres → no agregar como ítem
+      if (/^\d+$/.test(colA)) {
+        currentRubroName = descRaw;
+        currentRubroNum = colA;
+        rubros.push(currentRubroName);
+        lineas.push("RUBRO: " + currentRubroName);
         continue;
       }
-      if (isItem && descCell) {
-        const um = (row[colUm] != null ? String(row[colUm]).trim() : "").replace(/\s/g, "") || "UN";
-        const cant = parseFloat(String(row[colCant] ?? "0").replace(",", ".")) || 0;
-        const precio = parseFloat(String(row[colPrecio] ?? "0").replace(",", ".")) || 0;
-        items.push({ desc: descCell, um, cant, precio });
-        lineas.push(`${strA},${descCell.replace(/,/g, " ")},${um},${cant},${precio}`);
-      }
+
+      // ÍTEM: descRaw > 3, unidad válida, cantidad > 0, (colA 1.1 o colB entero)
+      const tieneNumero = /^\d+\.\d+/.test(colA) || /^\d+$/.test(colB);
+      if (!tieneNumero || !unidad || cantidad <= 0) continue;
+
+      const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);
+      const descEscaped = descRaw.replace(/,/g, " ");
+      items.push({ numero, desc: descRaw, unidad, cantidad, precio });
+      lineas.push(`${numero},${descEscaped},${unidad},${cantidad},${precio}`);
     }
   }
 
   if (typeof console !== "undefined" && console.log) {
-    console.log("[Excel cómputo] Formato detectado: cómputo de obra. Rubros:", rubros.length, "| Ítems:", items.length, "| Primeros 5:", items.slice(0, 5));
+    console.log("[Excel cómputo] Total rubros:", rubros.length, "| Total ítems:", items.length);
+    console.log("[Excel cómputo] Primeros 10 ítems:", items.slice(0, 10).map((i) => ({ ...i })));
   }
   return lineas.join("\n");
 }

@@ -474,6 +474,15 @@ const PALABRAS_CLAVE_CONSTRUCCION = new Set([
   "fenolico",
   "piedra",
   "grava",
+  "mosaico",
+  "baldosa",
+  "laja",
+  "granito",
+  "marmol",
+  "espejo",
+  "cristal",
+  "extintor",
+  "matafuegos",
 ]);
 
 // ─── Normalize text: lowercase, remove accents, remove symbols (Ø ° . , ( ) / etc.), collapse spaces
@@ -613,6 +622,7 @@ function parseComputeInteligente(wb) {
     if (aoa.length < 2) continue;
 
     let pendiente = null;
+    let currentSubRubro = "";
 
     for (let r = 0; r < aoa.length; r++) {
       const row = Array.isArray(aoa[r]) ? aoa[r] : [];
@@ -681,6 +691,11 @@ function parseComputeInteligente(wb) {
         continue;
       }
 
+      // Sub-rubro: colA tipo 4.1, texto corto en mayúsculas/mixto, sin unidad ni cantidad → solo contexto, no concatenar con ítems
+      if (/^\d+\.\d+$/.test(colA) && descClean.length < 50 && /[A-ZÁÉÍÓÚÑ]/.test(descClean) && !unidad && cantidad <= 0) {
+        currentSubRubro = descClean;
+        continue;
+      }
       // Fila con número + descripción pero sin unidad/cantidad → guardar como pendiente (continuación en sig. fila)
       if (tieneNumero && (!unidad || cantidad <= 0)) {
         const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);

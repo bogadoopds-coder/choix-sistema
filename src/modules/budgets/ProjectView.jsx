@@ -623,9 +623,10 @@ function parseComputeInteligente(wb) {
       if (!descRaw && (/^\d+\.\d+/.test(colA) || /^\d+$/.test(colB))) {
         descRaw = String(row[1] ?? "").trim();
       }
+      const descClean = descRaw.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 
-      if (!descRaw || descRaw.length <= 3) continue;
-      if (IGNORAR_DESC_COMUTO.test(descRaw)) continue;
+      if (!descClean || descClean.length <= 3) continue;
+      if (IGNORAR_DESC_COMUTO.test(descClean)) continue;
 
       // Unidad: columnas 8–11, primera que matchee UM
       let colUm = -1;
@@ -661,7 +662,7 @@ function parseComputeInteligente(wb) {
       // Si hay fila pendiente: esta fila puede ser continuación (tiene unidad+cantidad) o nuevo ítem (tiene número)
       if (pendiente) {
         if (unidad && cantidad > 0) {
-          const descCompleta = (pendiente.desc + " " + descRaw).trim();
+          const descCompleta = (pendiente.desc + " " + descClean).trim();
           const descEscaped = descCompleta.replace(/,/g, " ");
           items.push({ numero: pendiente.numero, desc: descCompleta, unidad, cantidad, precio });
           lineas.push(`${pendiente.numero},${descEscaped},${unidad},${cantidad},${precio}`);
@@ -673,7 +674,7 @@ function parseComputeInteligente(wb) {
 
       // RUBRO: colA = número entero sin punto, descRaw > 3 caracteres → no agregar como ítem
       if (/^\d+$/.test(colA)) {
-        currentRubroName = descRaw;
+        currentRubroName = descClean;
         currentRubroNum = colA;
         rubros.push(currentRubroName);
         lineas.push("RUBRO: " + currentRubroName);
@@ -683,7 +684,7 @@ function parseComputeInteligente(wb) {
       // Fila con número + descripción pero sin unidad/cantidad → guardar como pendiente (continuación en sig. fila)
       if (tieneNumero && (!unidad || cantidad <= 0)) {
         const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);
-        pendiente = { numero, desc: descRaw };
+        pendiente = { numero, desc: descClean };
         continue;
       }
 
@@ -691,8 +692,8 @@ function parseComputeInteligente(wb) {
       if (!tieneNumero || !unidad || cantidad <= 0) continue;
 
       const numero = /^\d+\.\d+/.test(colA) ? colA : (currentRubroNum ? currentRubroNum + "." + colB : colB);
-      const descEscaped = descRaw.replace(/,/g, " ");
-      items.push({ numero, desc: descRaw, unidad, cantidad, precio });
+      const descEscaped = descClean.replace(/,/g, " ");
+      items.push({ numero, desc: descClean, unidad, cantidad, precio });
       lineas.push(`${numero},${descEscaped},${unidad},${cantidad},${precio}`);
     }
   }

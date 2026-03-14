@@ -1353,7 +1353,7 @@ ${JSON.stringify(CHANDIAS_RENDIMIENTOS, null, 0)}
 
 Usá estos rendimientos junto con los precios de materiales que conocés para estimar el precio unitario de cada tarea compuesta. Si no tenés el precio exacto de un material, usá un valor de mercado razonable para Argentina.
 
-Para cada ítem, estimá un precio_unitario en pesos argentinos (ARS) a valores de marzo 2025. Para tareas compuestas, calculá el precio usando los rendimientos del Chandías: sumá el costo de materiales + mano de obra. Usá estos valores de referencia para mano de obra:
+Para cada ítem, estimá un precio_unitario en pesos argentinos (ARS) a valores de marzo 2026. Para tareas compuestas, calculá el precio usando los rendimientos del Chandías: sumá el costo de materiales + mano de obra. Usá estos valores de referencia para mano de obra:
 - Oficial albañil: $4500/hora
 - Ayudante: $3200/hora
 - Oficial electricista/sanitarista: $5000/hora

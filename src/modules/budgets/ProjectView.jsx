@@ -1353,10 +1353,17 @@ ${JSON.stringify(CHANDIAS_RENDIMIENTOS, null, 0)}
 
 Usá estos rendimientos junto con los precios de materiales que conocés para estimar el precio unitario de cada tarea compuesta. Si no tenés el precio exacto de un material, usá un valor de mercado razonable para Argentina.
 
+Para cada ítem, estimá un precio_unitario en pesos argentinos (ARS) a valores de marzo 2025. Para tareas compuestas, calculá el precio usando los rendimientos del Chandías: sumá el costo de materiales + mano de obra. Usá estos valores de referencia para mano de obra:
+- Oficial albañil: $4500/hora
+- Ayudante: $3200/hora
+- Oficial electricista/sanitarista: $5000/hora
+
+Para materiales, usá precios de mercado argentino actuales. Si no podés calcular un precio exacto, estimá un valor razonable basado en tu conocimiento. Nunca dejes precio_unitario en 0.
+
 Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes ni después, ni backticks ni explicaciones.
 Formato exacto (respeta los nombres de campos):
 
-{"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"UN","cantidad":0,"observaciones":"cálculo o justificación"}]}]}
+{"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"m2","cantidad":100,"precio_unitario":5500,"observaciones":"cálculo o justificación"}]}]}
 
 IMPORTANTE: Extraé TODOS los ítems individuales del pliego, tal como aparecen. NO resumas ni agrupes múltiples ítems en uno solo. Cada línea del pliego que tenga descripción + unidad + cantidad debe ser un ítem separado.
 
@@ -1369,7 +1376,7 @@ Máximo 50 ítems POR CHUNK. Si hay más, priorizá los de mayor monto.
 Reglas:
 - obra: string con el nombre de la obra.
 - rubros: array de objetos; cada uno tiene "nombre" (string) e "items" (array).
-- Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), observaciones (string).
+- Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), precio_unitario (número en ARS), observaciones (string).
 - Agrupá por rubros lógicos (ej. "Estructura", "Instalaciones", "Terminaciones"). Entre 1 y 15 rubros.
 - Cantidades conservadoras y realistas. Máximo 50 ítems por fragmento.
 - Respuesta: solo el JSON, nada más.`;
@@ -1515,6 +1522,8 @@ Reglas:
         if (item == null || typeof item !== "object") return null;
         const desc = item.descripcion != null ? String(item.descripcion) : "";
         const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
+        const precioUnitario = typeof item.precio_unitario === "number" ? item.precio_unitario : parseFloat(item.precio_unitario);
+        const usaPrecioIA = Number.isFinite(precioUnitario) && precioUnitario > 0;
         const match = findBestBaseMatch(desc, um, BASE);
         const matched = match && match.codigo;
         if (matched && typeof console !== "undefined" && console.log) {
@@ -1528,11 +1537,11 @@ Reglas:
           desc: desc,
           um: um,
           precioBase: matched ? match.precio : 0,
-          precioCustom: null,
+          precioCustom: usaPrecioIA ? precioUnitario : null,
           cantPresup: Number(item.cantidad) || 0,
           consumidoReal: 0,
-          esCustom: !matched,
-          justificacion: item.observaciones != null ? String(item.observaciones) : "",
+          esCustom: !matched || usaPrecioIA,
+          justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : (item.observaciones != null ? String(item.observaciones) : ""),
           matchInfo: match?.matchInfo ?? { matched: false, palabrasBuscadas: [], mejorCandidato: "", overlapMejor: 0, minRequerido: 0 },
         };
       })

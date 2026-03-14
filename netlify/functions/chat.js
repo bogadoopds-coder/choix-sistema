@@ -24,7 +24,28 @@ exports.handler = async (event) => {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    const textoRespuesta = await response.text();
+
+    if (!response.ok) {
+      console.log("[chat] API error status:", response.status, "body (first 100):", textoRespuesta.slice(0, 100));
+      return {
+        statusCode: response.status,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Error de API: " + response.status + " - " + textoRespuesta.slice(0, 200) })
+      };
+    }
+
+    let data;
+    try {
+      data = JSON.parse(textoRespuesta);
+    } catch (parseError) {
+      console.log("[chat] Invalid JSON from API, status:", response.status, "body (first 100):", textoRespuesta.slice(0, 100));
+      return {
+        statusCode: 502,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Respuesta inválida de la API. El PDF puede ser demasiado grande." })
+      };
+    }
 
     return {
       statusCode: 200,

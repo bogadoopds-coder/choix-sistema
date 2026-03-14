@@ -742,6 +742,62 @@ function detectarCómputoEnTexto(texto) {
   return rubroCount >= 1 && itemCount >= 2;
 }
 
+function parseNumeroArgentino(str) {
+  if (str == null || typeof str !== "string") return NaN;
+  const s = str.trim().replace(/\./g, "").replace(",", ".");
+  return parseFloat(s);
+}
+
+const UNIDADES_PDF_PROVINCIAL = /^(m2|m3|ml|u|nº|n°|gl|dia|mes|kg)$/i;
+const REGEX_ITEM_PDF_PROVINCIAL = /^(\d+\.?\d*)\s+(.+?)\s+(m2|m3|ml|u|nº|n°|gl|dia|mes|kg)\s+([\d.,]+)\s+\$\s*([\d.,]+)/i;
+
+function parsearTextoPDFProvincial(texto) {
+  if (!texto || typeof texto !== "string") return "";
+  const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const output = [];
+  let rubroActual = "";
+  const rubrosSet = new Set();
+  let itemsCount = 0;
+
+  for (const line of lineas) {
+    const rubroMatch = line.match(/^(\d+)\s+([A-ZÁÉÍÓÚÑ\s\-]{4,})/);
+    if (rubroMatch && !rubroMatch[1].includes(".")) {
+      let nombre = rubroMatch[2].trim().replace(/\s+\$.*$/, "").trim();
+      if (nombre.length > 2) {
+        rubroActual = nombre;
+        if (!rubrosSet.has(rubroActual)) {
+          rubrosSet.add(rubroActual);
+          output.push("RUBRO: " + rubroActual);
+        }
+      }
+      continue;
+    }
+    const itemMatch = line.match(REGEX_ITEM_PDF_PROVINCIAL);
+    if (itemMatch) {
+      const [, numero, desc, unidad, cantStr, precioStr] = itemMatch;
+      const descClean = desc.trim().replace(/,/g, " ").replace(/\s+/g, " ").trim();
+      const cantidad = parseNumeroArgentino(cantStr);
+      const precio = parseNumeroArgentino(precioStr);
+      if (rubroActual && (output.length === 0 || !output[output.length - 1].startsWith("RUBRO:"))) {
+        output.push("RUBRO: " + rubroActual);
+        rubrosSet.add(rubroActual);
+      }
+      output.push(`${numero},${descClean},${unidad},${cantidad},${precio}`);
+      itemsCount++;
+      continue;
+    }
+    if (/^\d+\s+\$?\s*[\d.,]+/.test(line) && /^\d+\s+[A-Z]/.test(line) === false) {
+      const m = line.match(/^(\d+)\s+(.+)/);
+      if (m && m[2].trim().match(/^[\d.,\s\$\%]+$/)) continue;
+    }
+  }
+
+  if (typeof console !== "undefined" && console.log && (rubrosSet.size > 0 || itemsCount > 0)) {
+    console.log("PDF provincial parseado: " + rubrosSet.size + " rubros, " + itemsCount + " ítems");
+  }
+  return output.length > 0 ? output.join("\n") : "";
+}
+
 async function extraerTextoPDF(arrayBuffer) {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let texto = "";
@@ -804,7 +860,12 @@ function TabIA({ proyecto, addItems, BASE }) {
           setPliego("");
           return;
         }
-        setPliego(texto.trim() || "");
+        let textoFinal = texto.trim() || "";
+        if (textoFinal.length >= 50 && detectarCómputoEnTexto(textoFinal)) {
+          const csvParseado = parsearTextoPDFProvincial(textoFinal);
+          if (csvParseado) textoFinal = csvParseado;
+        }
+        setPliego(textoFinal);
         if (texto.trim().length < 50) {
           setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
         } else {

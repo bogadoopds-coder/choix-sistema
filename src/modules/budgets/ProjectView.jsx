@@ -886,9 +886,12 @@ function TabIA({ proyecto, addItems, BASE }) {
           return;
         }
         let textoFinal = texto.trim() || "";
-        if (textoFinal.length >= 50 && detectarCómputoEnTexto(textoFinal)) {
-          const csvParseado = parsearTextoPDFProvincial(textoFinal);
-          if (csvParseado) textoFinal = csvParseado;
+        const csvParseado = parsearTextoPDFProvincial(textoFinal || texto.trim());
+        if (csvParseado && csvParseado.length > 50) {
+          textoFinal = csvParseado;
+          if (typeof console !== "undefined" && console.log) {
+            console.log("PDF parseado a CSV:", csvParseado.length, "chars");
+          }
         }
         setPliego(textoFinal);
         if (texto.trim().length < 50) {

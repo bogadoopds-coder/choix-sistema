@@ -6,6 +6,9 @@ import { precioVigente, semaforo } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { sendChat } from "../../services/ai/chatClient";
 import { CHANDIAS_RENDIMIENTOS } from "../../data/chandiasRendimientos";
+import * as pdfjsLib from "pdfjs-dist";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs";
 
 // ─── SELECTOR BASE ────────────────────────────────────────────────────────────
 function SelectorBase({ BASE, onAdd, existentes }) {
@@ -739,6 +742,18 @@ function detectarCómputoEnTexto(texto) {
   return rubroCount >= 1 && itemCount >= 2;
 }
 
+async function extraerTextoPDF(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let texto = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map((item) => item.str).join(" ");
+    texto += pageText + "\n";
+  }
+  return { texto, numPaginas: pdf.numPages };
+}
+
 // ─── TAB IA / PLIEGO ──────────────────────────────────────────────────────────
 function TabIA({ proyecto, addItems, BASE }) {
   const [pliego, setPliego] = useState("");
@@ -770,78 +785,36 @@ function TabIA({ proyecto, addItems, BASE }) {
     const ext = file.name.split(".").pop().toLowerCase();
     try {
       if (ext === "pdf") {
-        const base64 = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => {
-            const dataUrl = r.result;
-            if (!dataUrl || typeof dataUrl !== "string") {
-              rej(new Error("No se pudo leer el archivo"));
-              return;
-            }
-            const part = dataUrl.split(",")[1];
-            if (!part) rej(new Error("Formato de archivo inválido"));
-            else res(part);
-          };
-          r.onerror = () => rej(new Error("Error leyendo PDF"));
-          r.readAsDataURL(file);
-        });
-        let data;
+        let arrayBuffer;
         try {
-          data = await sendChat({
-            messages: [
-              {
-                role: "user",
-                content: [
-                  { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-                  { type: "text", text: "Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios." },
-                ],
-              },
-            ],
-            max_tokens: 8192,
-          });
-        } catch (parseErr) {
-          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
-          setError("Error al procesar la respuesta del servidor.");
+          arrayBuffer = await file.arrayBuffer();
+        } catch (err) {
+          setError("Error al leer el archivo PDF.");
           setPliego("");
           return;
         }
-        const rawResp = typeof data === "string" ? data : null;
-        if (rawResp && String(rawResp).trim().startsWith("<")) {
-          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
-          setError("La API devolvió una página de error en lugar de texto.");
-          setPliego("");
-          return;
-        }
-        if (data && data.error) {
-          const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
-          setError("Error al leer PDF: " + errMsg);
-          setPliego("");
-          return;
-        }
-        let txt = "";
+        let texto = "";
+        let numPaginas = 0;
         try {
-          if (data == null || typeof data !== "object") {
-            setPliego("");
-            return;
-          }
-          const content = data.content;
-          txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
-        } catch (extractErr) {
-          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
-          setError("No se pudo interpretar la respuesta. Probá con un PDF más corto.");
+          const result = await extraerTextoPDF(arrayBuffer);
+          texto = result.texto;
+          numPaginas = result.numPaginas;
+        } catch (err) {
+          setError("Error al extraer texto del PDF: " + (err?.message || String(err)));
           setPliego("");
           return;
         }
-        setPliego(txt || "");
-        if (data.stop_reason === "max_tokens") {
-          setFileWarning("Advertencia: la respuesta podría estar truncada por límite de longitud.");
-        } else if (txt.length > 0 && txt.length < 300) {
-          setFileWarning("Texto muy breve; si el PDF tiene más contenido, es posible que no se haya extraído todo.");
+        setPliego(texto.trim() || "");
+        if (texto.trim().length < 50) {
+          setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
         } else {
-          setFileWarning("");
+          setFileWarning("PDF de " + numPaginas + " página(s) procesado localmente.");
+          if (detectarCómputoEnTexto(texto)) {
+            setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+          }
         }
-        if (txt && detectarCómputoEnTexto(txt)) {
-          setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+        if (typeof console !== "undefined" && console.log) {
+          console.log("PDF procesado localmente: " + numPaginas + " páginas, " + texto.length + " caracteres");
         }
       } else if (ext === "xlsx" || ext === "xls") {
         const ab = await file.arrayBuffer();

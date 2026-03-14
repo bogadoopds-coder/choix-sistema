@@ -748,52 +748,66 @@ function parseNumeroArgentino(str) {
   return parseFloat(s);
 }
 
-const UNIDADES_PDF_PROVINCIAL = /^(m2|m3|ml|u|nº|n°|gl|dia|mes|kg)$/i;
-const REGEX_ITEM_PDF_PROVINCIAL = /^(\d+\.?\d*)\s+(.+?)\s+(m2|m3|ml|u|nº|n°|gl|dia|mes|kg)\s+([\d.,]+)\s+\$\s*([\d.,]+)/i;
+const REGEX_RUBRO_TOTAL_PDF = /^(\d+)\s+([\d.,]+)\s*\$\s+[\d.,]+%/;
+const REGEX_ITEM_PDF_PROVINCIAL = /^(\d+(?:\.\d+)?)\s+(?:\d+\s+)?(.+?)\s+(m2|m3|ml|u|un|nº|n°|gl|dia|mes|kg|tn)\s+([\d.,]+)\s+([\d.,]+)\s*\$/i;
+const RUBRO_TITLE_PATTERN = /^[A-ZÁÉÍÓÚÑ\s\-()]+$/;
+const RUBRO_KEYWORDS = /TRABAJOS PREPARATORIOS|MOVIMIENTO|ESTRUCTURA|ALBAÑILERIA|ALBAÑILERÍA|REVESTIMIENTOS|PISOS|MARMOLERIA|CUBIERTAS|CIELORRASOS|CARPINTERIAS|INSTALACIÓN ELÉCTRICA|INSTALACIÓN SANITARIA|INSTALACIÓN DE GAS|ELECTROMECÁNICA|ACONDICIONAMIENTO|SEGURIDAD|CRISTALES|PINTURAS|SEÑALÉTICA|OBRAS EXTERIORES|LIMPIEZA|VARIOS/i;
 
 function parsearTextoPDFProvincial(texto) {
   if (!texto || typeof texto !== "string") return "";
   const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const output = [];
-  let rubroActual = "";
-  const rubrosSet = new Set();
-  let itemsCount = 0;
+  const nombreRubroPorNum = {};
 
-  for (const line of lineas) {
-    const rubroMatch = line.match(/^(\d+)\s+([A-ZÁÉÍÓÚÑ\s\-]{4,})/);
-    if (rubroMatch && !rubroMatch[1].includes(".")) {
-      let nombre = rubroMatch[2].trim().replace(/\s+\$.*$/, "").trim();
-      if (nombre.length > 2) {
-        rubroActual = nombre;
-        if (!rubrosSet.has(rubroActual)) {
-          rubrosSet.add(rubroActual);
-          output.push("RUBRO: " + rubroActual);
+  for (let i = 0; i < lineas.length; i++) {
+    const line = lineas[i];
+    const rubroTotalMatch = line.match(REGEX_RUBRO_TOTAL_PDF);
+    if (rubroTotalMatch) {
+      const num = rubroTotalMatch[1];
+      if (nombreRubroPorNum[num]) continue;
+      const prev = lineas[i - 1];
+      const next = lineas[i + 1];
+      for (const vecina of [prev, next]) {
+        if (vecina && vecina.length >= 5 && vecina.length <= 80 && RUBRO_TITLE_PATTERN.test(vecina) && RUBRO_KEYWORDS.test(vecina)) {
+          nombreRubroPorNum[num] = vecina.trim().replace(/\s+/g, " ");
+          break;
         }
       }
-      continue;
+      if (!nombreRubroPorNum[num]) nombreRubroPorNum[num] = "Rubro " + num;
     }
+  }
+
+  const output = [];
+  const rubrosVistos = new Set();
+  const itemsParseados = [];
+  let ultimoRubroNum = "";
+
+  for (const line of lineas) {
     const itemMatch = line.match(REGEX_ITEM_PDF_PROVINCIAL);
     if (itemMatch) {
       const [, numero, desc, unidad, cantStr, precioStr] = itemMatch;
       const descClean = desc.trim().replace(/,/g, " ").replace(/\s+/g, " ").trim();
       const cantidad = parseNumeroArgentino(cantStr);
       const precio = parseNumeroArgentino(precioStr);
-      if (rubroActual && (output.length === 0 || !output[output.length - 1].startsWith("RUBRO:"))) {
-        output.push("RUBRO: " + rubroActual);
-        rubrosSet.add(rubroActual);
+      const rubroNum = String(numero.includes(".") ? numero.split(".")[0] : numero);
+      const nombreRubro = nombreRubroPorNum[rubroNum] || "Rubro " + rubroNum;
+      if (rubroNum !== ultimoRubroNum) {
+        ultimoRubroNum = rubroNum;
+        rubrosVistos.add(rubroNum);
+        output.push("RUBRO: " + nombreRubro);
       }
       output.push(`${numero},${descClean},${unidad},${cantidad},${precio}`);
-      itemsCount++;
+      itemsParseados.push({ numero, desc: descClean, unidad, cantidad, precio });
       continue;
     }
-    if (/^\d+\s+\$?\s*[\d.,]+/.test(line) && /^\d+\s+[A-Z]/.test(line) === false) {
-      const m = line.match(/^(\d+)\s+(.+)/);
-      if (m && m[2].trim().match(/^[\d.,\s\$\%]+$/)) continue;
+    const rubroTotalMatch = line.match(REGEX_RUBRO_TOTAL_PDF);
+    if (rubroTotalMatch) {
+      ultimoRubroNum = rubroTotalMatch[1];
     }
   }
 
-  if (typeof console !== "undefined" && console.log && (rubrosSet.size > 0 || itemsCount > 0)) {
-    console.log("PDF provincial parseado: " + rubrosSet.size + " rubros, " + itemsCount + " ítems");
+  if (typeof console !== "undefined" && console.log && (Object.keys(nombreRubroPorNum).length > 0 || itemsParseados.length > 0)) {
+    console.log("PDF provincial parseado: rubros detectados:", Object.keys(nombreRubroPorNum).length, "| ítems parseados:", itemsParseados.length);
+    console.log("PDF provincial - primeros 10 ítems:", itemsParseados.slice(0, 10).map((i) => ({ desc: (i.desc || "").slice(0, 40), unidad: i.unidad, cant: i.cantidad, precio: i.precio })));
   }
   return output.length > 0 ? output.join("\n") : "";
 }

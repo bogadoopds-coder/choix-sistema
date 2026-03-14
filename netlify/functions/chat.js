@@ -9,7 +9,7 @@ exports.handler = async (event) => {
 
     const body = {
       model: "claude-sonnet-4-20250514",
-      max_tokens: (typeof max_tokens === "number" && max_tokens > 0) ? Math.min(max_tokens, 8192) : 1024,
+      max_tokens: (typeof max_tokens === "number" && max_tokens > 0) ? Math.min(max_tokens, 16384) : 1024,
       messages: messages
     };
     if (system) body.system = system;

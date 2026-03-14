@@ -155,9 +155,57 @@ export default function DashboardModule() {
       const pctAvance = presupuestoTotal > 0 ? (100 * totalConsumido) / presupuestoTotal : 0;
       const desvio = totalConsumido - presupuestoTotal;
       const desvioPct = presupuestoTotal > 0 ? (100 * desvio) / presupuestoTotal : 0;
-      return { proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct };
+      const margenPct = presupuestoTotal > 0 ? (100 * (presupuestoTotal - totalConsumido)) / presupuestoTotal : 0;
+      return { proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct, margenPct };
     });
   }, [obras]);
+
+  const resumenEjecutivo = useMemo(() => {
+    const totalConsumido = saludPorObra.reduce((s, x) => s + x.totalConsumido, 0);
+    const margen = totalPresupuestado - totalConsumido;
+    const margenPct = totalPresupuestado > 0 ? (100 * margen) / totalPresupuestado : 0;
+    return { totalPresupuestado, totalConsumido, margen, margenPct, cantidadObras: obras.length };
+  }, [saludPorObra, totalPresupuestado, obras.length]);
+
+  const alertasCriticas = useMemo(() => {
+    const list = [];
+    saludPorObra.forEach(({ proyecto: p, presupuestoTotal, totalConsumido, pctAvance }) => {
+      const nombre = p.nombre || p.codigo || "Obra";
+      if (presupuestoTotal > 0 && totalConsumido > presupuestoTotal) {
+        const exceso = totalConsumido - presupuestoTotal;
+        const pct = (100 * exceso) / presupuestoTotal;
+        list.push({ severity: 1, type: "perdida", text: `🔴 OBRA EN PÉRDIDA: ${nombre} - consumido supera presupuesto en ${ars(exceso)} (${pct.toFixed(0)}%)` });
+      } else if (presupuestoTotal > 0 && totalConsumido >= 0.85 * presupuestoTotal) {
+        list.push({ severity: 2, type: "riesgo", text: `🟡 OBRA EN RIESGO: ${nombre} - consumido al ${pctAvance.toFixed(0)}% del presupuesto` });
+      }
+    });
+    obras.forEach((p) => {
+      const presupPorRubro = new Map();
+      const consumidoPorRubro = new Map();
+      (p.items || []).forEach((it) => {
+        const rubro = rubroFromItem(it);
+        const sub = itemSubtotal(it, p.iccPct ?? p.icc);
+        const cons = itemConsumido(it, p.iccPct ?? p.icc);
+        presupPorRubro.set(rubro, (presupPorRubro.get(rubro) || 0) + sub);
+        consumidoPorRubro.set(rubro, (consumidoPorRubro.get(rubro) || 0) + cons);
+      });
+      consumidoPorRubro.forEach((cons, rubro) => {
+        const presup = presupPorRubro.get(rubro) || 0;
+        if (presup > 0 && cons > presup) {
+          const exceso = cons - presup;
+          list.push({ severity: 3, type: "desvio", text: `🟡 DESVÍO IMPORTANTE: ${p.nombre || p.codigo} Rubro ${rubro} supera presupuesto en ${ars(exceso)}` });
+        }
+      });
+    });
+    return list.sort((a, b) => a.severity - b.severity).slice(0, 10);
+  }, [saludPorObra, obras]);
+
+  const rankingObras = useMemo(() => {
+    return [...saludPorObra].sort((a, b) => a.margenPct - b.margenPct).map((s) => ({
+      ...s,
+      estado: s.margenPct >= 10 ? "🟢" : s.margenPct >= 5 ? "🟡" : "🔴",
+    }));
+  }, [saludPorObra]);
 
   const resumenPrecios = useMemo(() => {
     let totalOriginal = 0;
@@ -186,9 +234,82 @@ export default function DashboardModule() {
   const AMARILLO = "#d4a84b";
   const card = { background: "#141a16", border: "1px solid #1e2a22", borderRadius: "10px", padding: "16px", marginBottom: "12px" };
 
+  const margenColor = resumenEjecutivo.margenPct > 10 ? TEAL : resumenEjecutivo.margenPct >= 5 ? AMARILLO : ROJO;
+
   return (
     <div style={{ padding: "20px", overflowY: "auto", height: "100%", background: "#0f1210" }}>
       <div style={{ fontWeight: 800, fontSize: "18px", color: "#d8e4de", marginBottom: "16px" }}>📊 Dashboard General</div>
+
+      {/* 1. RESUMEN EJECUTIVO */}
+      <div style={{ ...card, background: "#161f1a", border: "1px solid #243028", marginBottom: "16px" }}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "14px", marginBottom: "12px" }}>📊 RESUMEN GENERAL</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "#d8e4de" }}>
+          <span>Total presupuestado: <strong style={{ color: GOLD }}>{ars(resumenEjecutivo.totalPresupuestado)}</strong></span>
+          <span>Total consumido: <strong>{ars(resumenEjecutivo.totalConsumido)}</strong></span>
+          <span>Margen global: <strong style={{ color: margenColor }}>{ars(resumenEjecutivo.margen)} ({resumenEjecutivo.margenPct.toFixed(1)}%)</strong></span>
+        </div>
+        <div style={{ fontSize: "11px", color: "#4a6055" }}>
+          {resumenEjecutivo.cantidadObras} obras | {ars(resumenEjecutivo.totalPresupuestado)} presupuestado | Margen {resumenEjecutivo.margenPct.toFixed(1)}%
+        </div>
+      </div>
+
+      {/* 2. ALERTAS CRÍTICAS */}
+      <div style={{ ...card, ...(alertasCriticas.length > 0 ? { border: `2px solid ${ROJO}` } : {}) }}>
+        <div style={{ fontWeight: 700, color: alertasCriticas.length > 0 ? ROJO : GOLD, fontSize: "12px", marginBottom: "10px" }}>
+          {alertasCriticas.length > 0 ? "⚠️ ALERTAS CRÍTICAS" : "✅ ALERTAS CRÍTICAS"}
+        </div>
+        {alertasCriticas.length === 0 ? (
+          <div style={{ color: TEAL, fontSize: "12px" }}>✅ Todas las obras dentro de parámetros normales</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "11px", color: "#d8e4de", lineHeight: 1.6 }}>
+            {alertasCriticas.map((a, i) => (
+              <li key={i}>{a.text}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* 3. RANKING DE OBRAS */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Ranking de obras</div>
+        {rankingObras.length === 0 ? (
+          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin obras activas</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #1e2a22", color: "#4a6055", textAlign: "left" }}>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Obra</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Presupuesto</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Consumido</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Margen $</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Margen %</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingObras.map((s, i) => (
+                  <tr
+                    key={s.proyecto.id}
+                    style={{
+                      cursor: "pointer",
+                      borderBottom: "1px solid #1e2a22",
+                      background: i % 2 === 1 ? "rgba(30, 42, 34, 0.4)" : "transparent",
+                    }}
+                  >
+                    <td style={{ padding: "6px 8px", color: "#d8e4de" }}>{s.proyecto.nombre}</td>
+                    <td style={{ padding: "6px 8px", color: GOLD }}>{ars(s.presupuestoTotal)}</td>
+                    <td style={{ padding: "6px 8px", color: "#d8e4de" }}>{ars(s.totalConsumido)}</td>
+                    <td style={{ padding: "6px 8px", color: s.desvio <= 0 ? TEAL : ROJO }}>{ars(-s.desvio)}</td>
+                    <td style={{ padding: "6px 8px", color: s.margenPct >= 10 ? TEAL : s.margenPct >= 5 ? AMARILLO : ROJO }}>{s.margenPct.toFixed(1)}%</td>
+                    <td style={{ padding: "6px 8px" }}>{s.estado}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Top summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px", marginBottom: "16px" }}>

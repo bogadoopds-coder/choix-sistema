@@ -743,55 +743,36 @@ function detectarCómputoEnTexto(texto) {
 }
 
 function parseNumeroArgentino(str) {
-  if (str == null || typeof str !== "string") return NaN;
-  const s = str.trim().replace(/\./g, "").replace(",", ".");
-  return parseFloat(s);
+  if (!str) return 0;
+  return parseFloat(String(str).replace(/\./g, "").replace(",", ".")) || 0;
 }
 
-const REGEX_RUBRO_TOTAL_PDF = /^(\d+)\s+([\d.,]+)\s*\$\s+([\d.,]+)%/;
-const REGEX_ITEM_PDF_PROVINCIAL = /^(\d+(?:\.\d+)?)\s+(?:(\d+)\s+)?(.+?)\s+(m2|m3|ml|u|un|nº|n°|gl|dia|mes|kg|tn)\s+([\d.,]+)\s+([\d.,]+)\s*\$/i;
-const RUBRO_TITLE_PATTERN = /^[A-ZÁÉÍÓÚÑ\s\-()]+$/;
-const RUBRO_KEYWORDS = /TRABAJOS PREPARATORIOS|MOVIMIENTO DE SUELO|ESTRUCTURA RESISTENTE|ALBAÑILERIA|ALBAÑILERÍA|REVESTIMIENTOS|PISOS|MARMOLERIA|CUBIERTAS|CIELORRASOS|CARPINTERIAS|INSTALACION|CRISTALES|PINTURAS|SEÑALETICA|SEÑALÉTICA|OBRAS EXTERIORES|LIMPIEZA|VARIOS/i;
-const REGEX_ITEM_INCOMPLETO = /^\d+(?:\.\d+)?\s+(?:\d+\s+)?.+$/;
+const NOMBRES_RUBRO_PROVINCIAL = {
+  "1": "Trabajos Preparatorios", "2": "Movimiento de Suelo", "3": "Estructura Resistente",
+  "4": "Albañilería", "5": "Revestimientos", "6": "Pisos y Zócalos", "7": "Marmolería",
+  "8": "Cubiertas y Techados", "9": "Cielorrasos", "10": "Carpinterías y Mobiliario",
+  "11": "Instalación Eléctrica", "12": "Instalación Sanitaria", "13": "Instalación de Gas",
+  "14": "Instalación Electromecánica", "15": "Acondicionamiento Térmico",
+  "16": "Instalación de Seguridad", "17": "Cristales, Espejos y Vidrios", "18": "Pinturas",
+  "19": "Señalética", "20": "Obras Exteriores", "21": "Limpieza de Obra", "22": "Varios"
+};
+
+const REGEX_ITEM_PDF = /^(\d+(?:\.\d+)?)\s+(?:(\d+)\s+)?(.+?)\s+(m2|m3|ml|u|un|nº|n°|gl|dia|mes|kg|tn)\s+([\d.,]+)\s+([\d.,]+)\s*\$/i;
+const REGEX_RUBRO_TOTAL = /^(\d{1,2})\s+([\d.,]+)\s*\$\s+([\d.,]+)%/;
 
 function parsearTextoPDFProvincial(texto) {
   if (!texto || typeof texto !== "string") return "";
-  const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-
-  const rubroTotalPosiciones = [];
-  for (let i = 0; i < lineas.length; i++) {
-    const m = lineas[i].match(REGEX_RUBRO_TOTAL_PDF);
-    if (m) rubroTotalPosiciones.push({ index: i, num: m[1] });
-  }
-
-  const nombreRubroPorNum = {};
-  for (let i = 0; i < lineas.length; i++) {
-    const line = lineas[i];
-    if (line.length < 5 || line.length > 100 || !RUBRO_TITLE_PATTERN.test(line) || !RUBRO_KEYWORDS.test(line)) continue;
-    let mejorNum = null;
-    let mejorDist = Infinity;
-    for (const { index, num } of rubroTotalPosiciones) {
-      const d = Math.abs(index - i);
-      if (d < mejorDist) {
-        mejorDist = d;
-        mejorNum = num;
-      }
-    }
-    if (mejorNum != null) {
-      nombreRubroPorNum[mejorNum] = line.replace(/\s+/g, " ").trim();
-    }
-  }
-  rubroTotalPosiciones.forEach(({ num }) => {
-    if (!nombreRubroPorNum[num]) nombreRubroPorNum[num] = "Rubro " + num;
-  });
-
+  let textoLimpio = texto.replace(/(\d+,\d+%)\s{2,}/g, "$1\n");
+  const lineas = textoLimpio.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const BASURA = /^(LANUS|ENSENADA|DISTRITO|ESTABLECIMIENTO|TIPO DE OBRA|COMPUTO Y PRESUPUESTO|MES BASE|RUBRO\s*$|ITEM\s*$|DESIGNACION|Cómputo\s*$|Presupuesto\s*$|%\s*incidencia|PLANILLA RESUMEN|FIRMA|PROYECTO|Responsable|Superficie|NOTA\s|Son PESOS|PLAZO DE|PRESUPUESTO TOTAL|HONORARIOS|HASTA\s*$|SUBTOTAL|Subtotal|Precio Rubro|GOBIERNO|Hoja Adicional|Informe gráfico|Número:|Referencia|El documento|página|AVANCE|Series|Monto de|% de avance|Unid\.|AMPLIACI|FC\s*$|Precio Item|TRABAJOS PREP|MOVIMIENTO|ESTRUCTURA|ALBAÑ|MAMPOST|REVOQUE|CONTRAPISO|AISLAC|REVESTIM|PISOS|MARMOL|CUBIERTA|CIELORRASO|CARPINTER|INSTALAC|CRISTAL|PINTURA|SEÑALÉTICA|VARIOS)/i;
+  const lineasFiltradas = lineas.filter((l) => !BASURA.test(l) && !(/^\d+$/.test(l) && l.length <= 4));
   const output = [];
   const itemsParseados = [];
   let ultimoRubroNum = "";
   let lineaPendiente = "";
 
   function procesarLinea(line) {
-    const itemMatch = line.match(REGEX_ITEM_PDF_PROVINCIAL);
+    const itemMatch = line.match(REGEX_ITEM_PDF);
     if (itemMatch) {
       const [, num, subNum, desc, unidad, cantStr, precioStr] = itemMatch;
       const numero = subNum ? num + "." + subNum : num;
@@ -799,7 +780,7 @@ function parsearTextoPDFProvincial(texto) {
       const cantidad = parseNumeroArgentino(cantStr);
       const precio = parseNumeroArgentino(precioStr);
       const rubroNum = String(numero.includes(".") ? numero.split(".")[0] : numero);
-      const nombreRubro = nombreRubroPorNum[rubroNum] || "Rubro " + rubroNum;
+      const nombreRubro = NOMBRES_RUBRO_PROVINCIAL[rubroNum] || "Rubro " + rubroNum;
       if (rubroNum !== ultimoRubroNum) {
         ultimoRubroNum = rubroNum;
         output.push("RUBRO: " + nombreRubro);
@@ -808,7 +789,7 @@ function parsearTextoPDFProvincial(texto) {
       itemsParseados.push({ numero, desc: descClean, unidad, cantidad, precio });
       return true;
     }
-    const rubroMatch = line.match(REGEX_RUBRO_TOTAL_PDF);
+    const rubroMatch = line.match(REGEX_RUBRO_TOTAL);
     if (rubroMatch) {
       ultimoRubroNum = rubroMatch[1];
       return true;
@@ -816,8 +797,8 @@ function parsearTextoPDFProvincial(texto) {
     return false;
   }
 
-  for (let i = 0; i < lineas.length; i++) {
-    const line = lineas[i];
+  for (let i = 0; i < lineasFiltradas.length; i++) {
+    const line = lineasFiltradas[i];
     const concatenada = lineaPendiente ? lineaPendiente + " " + line : line;
     if (lineaPendiente && procesarLinea(concatenada)) {
       lineaPendiente = "";
@@ -827,15 +808,16 @@ function parsearTextoPDFProvincial(texto) {
       lineaPendiente = "";
       continue;
     }
-    if (REGEX_ITEM_INCOMPLETO.test(line) && !REGEX_ITEM_PDF_PROVINCIAL.test(line)) {
+    if (/^\d+(?:\.\d+)?\s+(?:\d+\s+)?.+$/.test(line) && !REGEX_ITEM_PDF.test(line)) {
       lineaPendiente = line;
     } else {
       lineaPendiente = "";
     }
   }
 
-  if (typeof console !== "undefined" && console.log && (Object.keys(nombreRubroPorNum).length > 0 || itemsParseados.length > 0)) {
-    console.log("PDF provincial parseado: rubros detectados:", Object.keys(nombreRubroPorNum).length, "| total ítems:", itemsParseados.length);
+  if (typeof console !== "undefined" && console.log && (output.length > 0)) {
+    const rubrosUnicos = new Set(itemsParseados.map((i) => (i.numero.includes(".") ? i.numero.split(".")[0] : i.numero)));
+    console.log("PDF provincial parseado: rubros detectados:", rubrosUnicos.size, "| total ítems:", itemsParseados.length);
     console.log("PDF provincial - primeros 10 ítems:", itemsParseados.slice(0, 10).map((i) => ({ desc: (i.desc || "").slice(0, 50), unidad: i.unidad, cant: i.cantidad, precio: i.precio })));
   }
   return output.length > 0 ? output.join("\n") : "";

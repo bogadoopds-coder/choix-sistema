@@ -785,26 +785,53 @@ function TabIA({ proyecto, addItems, BASE }) {
           r.onerror = () => rej(new Error("Error leyendo PDF"));
           r.readAsDataURL(file);
         });
-        const data = await sendChat({
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-                { type: "text", text: "Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios." },
-              ],
-            },
-          ],
-          max_tokens: 8192,
-        });
+        let data;
+        try {
+          data = await sendChat({
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+                  { type: "text", text: "Extraé el texto completo de este pliego de obra o especificación técnica. Devolvé solo el texto, sin comentarios." },
+                ],
+              },
+            ],
+            max_tokens: 8192,
+          });
+        } catch (parseErr) {
+          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
+          setError("Error al procesar la respuesta del servidor.");
+          setPliego("");
+          return;
+        }
+        const rawResp = typeof data === "string" ? data : null;
+        if (rawResp && String(rawResp).trim().startsWith("<")) {
+          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
+          setError("La API devolvió una página de error en lugar de texto.");
+          setPliego("");
+          return;
+        }
         if (data && data.error) {
           const errMsg = typeof data.error === "string" ? data.error : (data.error?.message || "Error del servidor");
           setError("Error al leer PDF: " + errMsg);
           setPliego("");
           return;
         }
-        const content = data?.content;
-        const txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+        let txt = "";
+        try {
+          if (data == null || typeof data !== "object") {
+            setPliego("");
+            return;
+          }
+          const content = data.content;
+          txt = (Array.isArray(content) ? content.map((c) => (c && c.text) || "").join("") : (content && typeof content === "string" ? content : "") || "").trim();
+        } catch (extractErr) {
+          setFileWarning("El PDF es demasiado grande para la API. Probá con un archivo Excel o un PDF más corto (menos de 50 páginas).");
+          setError("No se pudo interpretar la respuesta. Probá con un PDF más corto.");
+          setPliego("");
+          return;
+        }
         setPliego(txt || "");
         if (data.stop_reason === "max_tokens") {
           setFileWarning("Advertencia: la respuesta podría estar truncada por límite de longitud.");

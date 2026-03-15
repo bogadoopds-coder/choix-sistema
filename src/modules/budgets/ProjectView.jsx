@@ -555,6 +555,48 @@ function wordsIntersection(wordsA, wordsB) {
   return wordsA.filter((w) => setB.has(w) && !PALABRAS_GENERICAS.has(w));
 }
 
+function normalizarTexto(str) {
+  return (str || "")
+    .toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calcularSimilaridad(a, b) {
+  const wordsA = new Set(normalizarTexto(a).split(" ").filter((w) => w.length > 2));
+  const wordsB = new Set(normalizarTexto(b).split(" ").filter((w) => w.length > 2));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let coincidencias = 0;
+  wordsA.forEach((w) => { if (wordsB.has(w)) coincidencias++; });
+  return coincidencias / Math.max(wordsA.size, wordsB.size);
+}
+
+function buscarEnAprendidos(descripcion, unidad, preciosAprendidos) {
+  if (!preciosAprendidos || preciosAprendidos.length === 0) return null;
+  const descNorm = normalizarTexto(descripcion);
+
+  // 1. Búsqueda exacta normalizada
+  const exacto = preciosAprendidos.find((p) =>
+    normalizarTexto(p.descripcion) === descNorm && Number(p.precioUnitario) > 0
+  );
+  if (exacto) return { ...exacto, metodo: "exacto" };
+
+  // 2. Búsqueda fuzzy (>= 70% similaridad de palabras)
+  let mejorMatch = null;
+  let mejorScore = 0;
+  preciosAprendidos.forEach((p) => {
+    if (Number(p.precioUnitario) <= 0) return;
+    const score = calcularSimilaridad(descripcion, p.descripcion);
+    if (score > mejorScore && score >= 0.7) {
+      mejorScore = score;
+      mejorMatch = { ...p, metodo: "fuzzy", score: Math.round(score * 100) };
+    }
+  });
+  return mejorMatch;
+}
+
 // ─── Find best base-price match: word-similarity + same-unit preference; highest overlap wins.
 // Returns { codigo?, precio?, matchInfo } so caller can always store matchInfo (matched or not, best candidate).
 function findBestBaseMatch(desc, um, BASE) {
@@ -1086,15 +1128,14 @@ function TabIA({ proyecto, addItems, BASE }) {
                 justificacion: "Precio del pliego original",
               });
             } else {
-              const keyDesc = desc.toUpperCase().trim();
-              const aprendido = preciosAprendidos.find((p) => (p.descripcion || "").toUpperCase().trim() === keyDesc && Number(p.precioUnitario) > 0);
+              const aprendido = buscarEnAprendidos(desc, um, preciosAprendidos);
               let match;
               let precioBase = 0;
               let codigo = numero;
               let justificacion = "Sin match en base";
               if (aprendido) {
                 precioBase = Number(aprendido.precioUnitario);
-                justificacion = "Precio aprendido (pliego anterior)";
+                justificacion = aprendido.metodo === "fuzzy" ? `Precio aprendido fuzzy (${aprendido.score}%)` : "Precio aprendido (pliego anterior)";
               } else {
                 match = findBestBaseMatch(desc, um, BASE);
                 precioBase = (match && match.precio != null) ? match.precio : 0;
@@ -1690,8 +1731,7 @@ Reglas:
         const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
         const precioUnitario = typeof item.precio_unitario === "number" ? item.precio_unitario : parseFloat(item.precio_unitario);
         const usaPrecioIA = Number.isFinite(precioUnitario) && precioUnitario > 0;
-        const keyDesc = desc.toUpperCase().trim();
-        const aprendido = preciosAprendidos.find((p) => (p.descripcion || "").toUpperCase().trim() === keyDesc && Number(p.precioUnitario) > 0);
+        const aprendido = buscarEnAprendidos(desc, um, preciosAprendidos);
         let match;
         let matched = false;
         let precioBase = 0;
@@ -1708,8 +1748,9 @@ Reglas:
           baseCodigo = matched ? match.codigo : undefined;
           matchInfo = match?.matchInfo ?? matchInfo;
         }
+        const justifAprendido = aprendido ? (aprendido.metodo === "fuzzy" ? `Precio aprendido fuzzy (${aprendido.score}%)` : "Precio aprendido (pliego anterior)") : (item.observaciones != null ? String(item.observaciones) : "");
         if (matched && typeof console !== "undefined" && console.log) {
-          console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", baseCodigo, "P.BASE:", precioBase);
+          console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", baseCodigo, "P.BASE:", precioBase, aprendido?.metodo ? `(${aprendido.metodo}${aprendido.score != null ? " " + aprendido.score + "%" : ""})` : "");
         } else if (!matched && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
           console.log("[AI/Pliego] Unmatched:", desc.slice(0, 50), "(P.BASE = 0)");
         }
@@ -1723,7 +1764,7 @@ Reglas:
           cantPresup: Number(item.cantidad) || 0,
           consumidoReal: 0,
           esCustom: !matched || usaPrecioIA,
-          justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : (aprendido ? "Precio aprendido (pliego anterior)" : (item.observaciones != null ? String(item.observaciones) : "")),
+          justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : justifAprendido,
           matchInfo,
         };
       })

@@ -5,7 +5,6 @@ import { uid } from "../../utils/id";
 import { precioVigente, semaforo } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { sendChat } from "../../services/ai/chatClient";
-import { CHANDIAS_RENDIMIENTOS } from "../../data/chandiasRendimientos";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import * as pdfjsLib from "pdfjs-dist";
@@ -43,6 +42,25 @@ async function guardarPreciosAprendidos(items) {
     console.error("Error guardando precios aprendidos:", e);
   }
 }
+
+const CHANDIAS_COMPRIMIDO = `RENDIMIENTOS CHANDÍAS (por unidad):
+H°A° losa: cem300kg+arena0.65m3+piedra0.65m3+hierro90kg/m3|of19h+ay18h
+H°A° viga: hierro120kg/m3|of22h+ay20h
+H°A° col: hierro130kg/m3|of24h+ay22h
+H°A° platea: hierro80kg/m3|of16h+ay15h
+Mamp hueco18: 16.5lad+74kg mort/m2|of1.12h+ay0.75h
+Mamp hueco12: 12lad+52kg mort/m2|of0.90h+ay0.60h
+Mamp comun15: 62lad+95kg mort/m3|of2.20h+ay1.50h
+Rev ext: 23L/m2|of0.95h+ay0.65h
+Rev int: 20L/m2|of0.80h+ay0.55h
+Contrap TN15: cem+arena+piedra|of0.45h+ay0.40h
+Contrap losa8: cem+arena+piedra|of0.35h+ay0.30h
+Cielorraso yeso: placa+perfil|of0.85h+ay0.55h
+Membrana4mm: 1.15m2/m2|of0.25h+ay0.15h
+Pintura latex: 0.22L/m2|of0.12h+ay0.08h
+Piso ceramico: 1.05m2+8kg peg/m2|of0.65h+ay0.35h
+Piso granitico: 1.05m2+12kg/m2|of0.90h+ay0.45h
+MANO OBRA mar2026: of$4500/h ay$3200/h elec$5000/h plom$4800/h`;
 
 // ─── SELECTOR BASE ────────────────────────────────────────────────────────────
 function SelectorBase({ BASE, onAdd, existentes }) {
@@ -1555,22 +1573,16 @@ DESCRIPCIÓN / PLIEGO:
 `;
 
   const pliegoPromptSuffix = `
-Tenés acceso a los rendimientos del Chandías para calcular precios de tareas compuestas. Cuando encuentres una tarea compuesta (ej: 'Losa llena H°A°', 'Revoque interior', 'Mampostería ladrillo hueco 18cm'), usá estos datos para estimar la composición de materiales y mano de obra por unidad:
-${JSON.stringify(CHANDIAS_RENDIMIENTOS, null, 0)}
+Tenés acceso a los rendimientos del Chandías (resumidos abajo) para estimar precios de tareas compuestas. Para cada ítem, estimá un precio en ARS (marzo 2026): sumá materiales + mano de obra. Usá precios de mercado argentino. Nunca dejes precio en 0.
 
-Usá estos rendimientos junto con los precios de materiales que conocés para estimar el precio unitario de cada tarea compuesta. Si no tenés el precio exacto de un material, usá un valor de mercado razonable para Argentina.
-
-Para cada ítem, estimá un precio_unitario en pesos argentinos (ARS) a valores de marzo 2026. Para tareas compuestas, calculá el precio usando los rendimientos del Chandías: sumá el costo de materiales + mano de obra. Usá estos valores de referencia para mano de obra:
-- Oficial albañil: $4500/hora
-- Ayudante: $3200/hora
-- Oficial electricista/sanitarista: $5000/hora
-
-Para materiales, usá precios de mercado argentino actuales. Si no podés calcular un precio exacto, estimá un valor razonable basado en tu conocimiento. Nunca dejes precio_unitario en 0.
+${CHANDIAS_COMPRIMIDO}
 
 Respondé ÚNICAMENTE con un único objeto JSON válido. No incluyas texto antes ni después, ni backticks ni explicaciones.
-Formato exacto (respeta los nombres de campos):
+Formato compacto (claves cortas): n=numero, d=descripcion, u=unidad, c=cantidad, p=precio_unitario.
 
-{"obra":"nombre breve de la obra","rubros":[{"nombre":"Nombre del rubro","items":[{"descripcion":"Descripción del ítem","unidad":"m2","cantidad":100,"precio_unitario":5500,"observaciones":"cálculo o justificación"}]}]}
+{"obra":"nombre breve","rubros":[{"nombre":"Rubro","items":[{"n":"1.1","d":"Descripción del ítem","u":"m2","c":100,"p":5500}]}]}
+
+IMPORTANTE: Extraer TODOS los ítems del texto, no solo los primeros. Si el texto tiene 100 ítems, devolver los 100. Usar formato JSON compacto sin espacios extras.
 
 IMPORTANTE: Extraé TODOS los ítems individuales del pliego, tal como aparecen. NO resumas ni agrupes múltiples ítems en uno solo. Cada línea del pliego que tenga descripción + unidad + cantidad debe ser un ítem separado.
 
@@ -1581,12 +1593,9 @@ NO agrupes rubros enteros en un solo ítem genérico. Por ejemplo, si el pliego 
 Máximo 50 ítems POR CHUNK. Si hay más, priorizá los de mayor monto.
 
 Reglas:
-- obra: string con el nombre de la obra.
-- rubros: array de objetos; cada uno tiene "nombre" (string) e "items" (array).
-- Cada ítem tiene: descripcion (string), unidad (string: UN, M2, M3, KG, LTS, etc.), cantidad (número), precio_unitario (número en ARS), observaciones (string).
-- Agrupá por rubros lógicos (ej. "Estructura", "Instalaciones", "Terminaciones"). Entre 1 y 15 rubros.
-- Cantidades conservadoras y realistas. Máximo 50 ítems por fragmento.
-- Respuesta: solo el JSON, nada más.`;
+- obra: string. rubros: array con "nombre" e "items".
+- Cada ítem: n (numero), d (descripcion), u (unidad), c (cantidad), p (precio ARS). Opcional: observaciones.
+- Agrupá por rubros lógicos. Entre 1 y 15 rubros. Respuesta: solo el JSON, nada más.`;
 
   async function runOneChunkAnalysis(chunkText, chunkIndex, totalChunks) {
     const chunkInfo = totalChunks > 1 ? `${chunkIndex + 1} de ${totalChunks}` : "";
@@ -1727,9 +1736,10 @@ Reglas:
     const flattened = rubros.flatMap((rubro) =>
       (Array.isArray(rubro?.items) ? rubro.items : []).map((item) => {
         if (item == null || typeof item !== "object") return null;
-        const desc = item.descripcion != null ? String(item.descripcion) : "";
-        const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
-        const precioUnitario = typeof item.precio_unitario === "number" ? item.precio_unitario : parseFloat(item.precio_unitario);
+        const desc = (item.d != null ? String(item.d) : item.descripcion != null ? String(item.descripcion) : "").trim();
+        const um = (item.u != null && String(item.u).trim()) ? String(item.u).trim() : (item.unidad != null && String(item.unidad).trim()) ? String(item.unidad).trim() : "UN";
+        const precioRaw = item.p ?? item.precio_unitario;
+        const precioUnitario = typeof precioRaw === "number" ? precioRaw : parseFloat(precioRaw);
         const usaPrecioIA = Number.isFinite(precioUnitario) && precioUnitario > 0;
         const aprendido = buscarEnAprendidos(desc, um, preciosAprendidos);
         let match;
@@ -1748,7 +1758,8 @@ Reglas:
           baseCodigo = matched ? match.codigo : undefined;
           matchInfo = match?.matchInfo ?? matchInfo;
         }
-        const justifAprendido = aprendido ? (aprendido.metodo === "fuzzy" ? `Precio aprendido fuzzy (${aprendido.score}%)` : "Precio aprendido (pliego anterior)") : (item.observaciones != null ? String(item.observaciones) : "");
+        const observaciones = item.observaciones != null ? String(item.observaciones) : "";
+        const justifAprendido = aprendido ? (aprendido.metodo === "fuzzy" ? `Precio aprendido fuzzy (${aprendido.score}%)` : "Precio aprendido (pliego anterior)") : observaciones;
         if (matched && typeof console !== "undefined" && console.log) {
           console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", baseCodigo, "P.BASE:", precioBase, aprendido?.metodo ? `(${aprendido.metodo}${aprendido.score != null ? " " + aprendido.score + "%" : ""})` : "");
         } else if (!matched && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
@@ -1761,7 +1772,7 @@ Reglas:
           um: um,
           precioBase,
           precioCustom: usaPrecioIA ? precioUnitario : null,
-          cantPresup: Number(item.cantidad) || 0,
+          cantPresup: Number(item.c ?? item.cantidad) || 0,
           consumidoReal: 0,
           esCustom: !matched || usaPrecioIA,
           justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : justifAprendido,
@@ -1861,9 +1872,9 @@ Reglas:
                   <tbody>
                     {(Array.isArray(rubro.items) ? rubro.items : []).map((item, ii) => (
                       <tr key={ii}>
-                        <td style={{ ...S.td, fontSize: "12px", maxWidth: "220px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.descripcion}>{item.descripcion}</div></td>
-                        <td style={{ ...S.td, textAlign: "center", color: COLORS.muted, whiteSpace: "nowrap" }}>{item.unidad}</td>
-                        <td style={{ ...S.td, textAlign: "right", fontWeight: 700 }}>{item.cantidad}</td>
+                        <td style={{ ...S.td, fontSize: "12px", maxWidth: "220px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.d ?? item.descripcion}>{item.d ?? item.descripcion}</div></td>
+                        <td style={{ ...S.td, textAlign: "center", color: COLORS.muted, whiteSpace: "nowrap" }}>{item.u ?? item.unidad}</td>
+                        <td style={{ ...S.td, textAlign: "right", fontWeight: 700 }}>{item.c ?? item.cantidad}</td>
                         <td style={{ ...S.td, fontSize: "11px", color: COLORS.muted, maxWidth: "180px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.observaciones}>{item.observaciones}</div></td>
                       </tr>
                     ))}

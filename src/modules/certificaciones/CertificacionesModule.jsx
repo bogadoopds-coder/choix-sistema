@@ -17,7 +17,7 @@ function buildCertItems(proyecto, cert, preciosActualizados, iccFactor) {
   if (prevCert && Array.isArray(prevCert.items)) {
     prevCert.items.forEach((it) => prevByItemId.set(it.itemId, it));
   }
-  return (proyecto.items || []).map((item) => {
+  return (proyecto.items || []).map((item, idx) => {
     const prev = prevByItemId.get(item.codigo);
     const cantAnterior = prev ? (prev.cantAcumulada ?? 0) : 0;
     const precioUnit = item.precioCustom ?? precioVigente(item.baseCodigo ?? item.codigo, item.precioBase, preciosActualizados);
@@ -31,6 +31,7 @@ function buildCertItems(proyecto, cert, preciosActualizados, iccFactor) {
     const porcentaje = cantPresup > 0 ? (cantAcumulada / cantPresup) * 100 : 0;
     return {
       itemId: item.codigo,
+      rowId: `${item.codigo}-${idx}`,
       descripcion: item.desc ?? "",
       unidad: item.um ?? "UN",
       cantPresup,
@@ -132,12 +133,13 @@ function DetalleCertificacion({ proyecto, certificacion, preciosActualizados, on
 
   const { totalPeriodo, totalAcumulado } = recalcCertTotals(items);
 
-  function setCantPeriodo(itemId, value) {
-    const num = parseFloat(value);
-    if (isNaN(num) || num < 0) return;
+  function handleCantChange(rowId, valor) {
+    const num = Number(valor) || 0;
+    if (num < 0) return;
+    console.log("CANT CHANGE - rowId:", rowId, "valor:", valor);
     setItems((prev) =>
       prev.map((it) => {
-        if (it.itemId !== itemId) return it;
+        if (it.rowId !== rowId) return it;
         const cantPeriodo = num;
         const cantAcumulada = it.cantAnterior + cantPeriodo;
         const montoPeriodo = cantPeriodo * it.precioUnitario;
@@ -215,19 +217,20 @@ function DetalleCertificacion({ proyecto, certificacion, preciosActualizados, on
           </thead>
           <tbody>
             {items.map((it) => (
-              <tr key={it.itemId}>
+              <tr key={it.rowId ?? it.itemId}>
                 <td style={{ ...S.td, maxWidth: "220px" }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.descripcion}>{it.descripcion}</div></td>
                 <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{it.unidad}</td>
                 <td style={{ ...S.td, textAlign: "right" }}>{it.cantPresup}</td>
                 <td style={{ ...S.td, textAlign: "right", color: COLORS.muted }}>{it.cantAnterior}</td>
                 <td style={S.td}>
                   <input
+                    key={it.rowId ?? it.itemId}
                     type="number"
                     min={0}
                     step="any"
                     style={{ ...S.input, width: "90px", textAlign: "right" }}
                     value={it.cantPeriodo}
-                    onChange={(e) => setCantPeriodo(it.itemId, e.target.value)}
+                    onChange={(e) => handleCantChange(it.rowId ?? it.itemId, e.target.value)}
                   />
                 </td>
                 <td style={{ ...S.td, textAlign: "right", fontWeight: 600 }}>{it.cantAcumulada.toFixed(2)}</td>
@@ -352,10 +355,12 @@ export default function CertificacionesModule({ BASE }) {
         p.id === selectedProyecto.id ? { ...p, certificaciones: updatedCerts } : p
       );
       await storage.set(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
-      localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
+      localStorage.setItem("choix_proyectos", JSON.stringify(updatedProyectos));
+      console.log("CERT SAVE - guardado OK (nueva cert)");
       setProyectos(updatedProyectos);
+      setSelectedProyecto(updatedProyectos.find((p) => p.id === selectedProyecto.id) ?? selectedProyecto);
     } catch (e) {
-      console.error("Error guardando nueva certificación:", e);
+      console.error("CERT SAVE ERROR:", e);
     }
   }
 
@@ -366,6 +371,8 @@ export default function CertificacionesModule({ BASE }) {
 
   async function handleSaveCert(updatedCert) {
     if (!selectedProyecto) return;
+    console.log("CERT SAVE - proyecto id:", selectedProyecto?.id);
+    console.log("CERT SAVE - cert id:", updatedCert?.id);
     try {
       const r = await storage.get(STORAGE_KEY_PROYECTOS);
       const raw = r?.value ?? localStorage.getItem(STORAGE_KEY_PROYECTOS);
@@ -377,14 +384,15 @@ export default function CertificacionesModule({ BASE }) {
         p.id === selectedProyecto.id ? { ...p, certificaciones: certs } : p
       );
       await storage.set(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
-      localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
+      localStorage.setItem("choix_proyectos", JSON.stringify(updatedProyectos));
+      console.log("CERT SAVE - guardado OK");
       setProyectos(updatedProyectos);
+      setSelectedProyecto(updatedProyectos.find((p) => p.id === selectedProyecto.id) ?? selectedProyecto);
       setSelectedCert(updatedCert);
-      console.log("Certificación guardada:", updatedCert.id);
       setSavedFeedback(true);
       setTimeout(() => setSavedFeedback(false), 2500);
     } catch (e) {
-      console.error("Error guardando certificación:", e);
+      console.error("CERT SAVE ERROR:", e);
     }
   }
 

@@ -3,6 +3,7 @@ import { uid } from "../../utils/id";
 import { ars } from "../../utils/format";
 import { precioVigente } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
+import { storage } from "../../services/storage";
 
 const STORAGE_KEY_PROYECTOS = "choix_proyectos";
 const STORAGE_KEY_PRECIOS = "choix_precios";
@@ -241,23 +242,39 @@ export default function CertificacionesModule({ BASE }) {
   const [savedFeedback, setSavedFeedback] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setProyectos(parsed);
+    (async () => {
+      console.log("CERT DEBUG - localStorage keys:", Object.keys(localStorage).filter((k) => k.includes("choix")));
+      console.log("CERT DEBUG - proyectos raw:", localStorage.getItem(STORAGE_KEY_PROYECTOS)?.substring(0, 200));
+
+      try {
+        const r = await storage.get(STORAGE_KEY_PROYECTOS);
+        const raw = r?.value ?? localStorage.getItem(STORAGE_KEY_PROYECTOS);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter((p) => p && p.id);
+            if (valid.length !== parsed.length) console.warn("CERT DEBUG - algunos proyectos sin id ignorados:", parsed.length - valid.length);
+            setProyectos(valid);
+            console.log("CERT DEBUG - proyectos cargados:", valid.length, "con id e items:", valid.map((p) => ({ id: p.id, items: (p.items || []).length })));
+          } else {
+            console.warn("CERT DEBUG - datos no son array:", typeof parsed);
+          }
+        } else {
+          console.log("CERT DEBUG - sin datos en storage ni localStorage para", STORAGE_KEY_PROYECTOS);
+        }
+      } catch (e) {
+        console.error("Error cargando proyectos:", e);
       }
-    } catch (e) {
-      console.error("Error cargando proyectos desde localStorage:", e);
-    }
-    try {
-      const rawP = localStorage.getItem(STORAGE_KEY_PRECIOS);
-      if (rawP) {
-        const parsed = JSON.parse(rawP);
-        if (parsed && typeof parsed === "object") setPreciosActualizados(parsed);
-      }
-    } catch {}
-    setStorageReady(true);
+      try {
+        const r2 = await storage.get(STORAGE_KEY_PRECIOS);
+        const rawP = r2?.value ?? localStorage.getItem(STORAGE_KEY_PRECIOS);
+        if (rawP) {
+          const parsed = JSON.parse(rawP);
+          if (parsed && typeof parsed === "object") setPreciosActualizados(parsed);
+        }
+      } catch {}
+      setStorageReady(true);
+    })();
   }, []);
 
   function updateProyecto(id, patch) {
@@ -270,7 +287,7 @@ export default function CertificacionesModule({ BASE }) {
     setSelectedCert(null);
   }
 
-  function handleNewCert() {
+  async function handleNewCert() {
     if (!selectedProyecto) return;
     const certs = selectedProyecto.certificaciones || [];
     const nextNum = certs.length ? Math.max(...certs.map((c) => c.numero ?? 0)) + 1 : 1;
@@ -302,15 +319,17 @@ export default function CertificacionesModule({ BASE }) {
     setSelectedCert(newCert);
     setView("detalle");
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
+      const r = await storage.get(STORAGE_KEY_PROYECTOS);
+      const raw = r?.value ?? localStorage.getItem(STORAGE_KEY_PROYECTOS);
       const proyectosFromStorage = raw ? JSON.parse(raw) : [];
       const updatedProyectos = proyectosFromStorage.map((p) =>
         p.id === selectedProyecto.id ? { ...p, certificaciones: updatedCerts } : p
       );
+      await storage.set(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
       localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
       setProyectos(updatedProyectos);
     } catch (e) {
-      console.error("Error guardando nueva certificación en localStorage:", e);
+      console.error("Error guardando nueva certificación:", e);
     }
   }
 
@@ -319,10 +338,11 @@ export default function CertificacionesModule({ BASE }) {
     setView("detalle");
   }
 
-  function handleSaveCert(updatedCert) {
+  async function handleSaveCert(updatedCert) {
     if (!selectedProyecto) return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
+      const r = await storage.get(STORAGE_KEY_PROYECTOS);
+      const raw = r?.value ?? localStorage.getItem(STORAGE_KEY_PROYECTOS);
       const proyectosFromStorage = raw ? JSON.parse(raw) : [];
       const certs = (selectedProyecto.certificaciones || []).map((c) =>
         c.id === updatedCert.id ? updatedCert : c
@@ -330,6 +350,7 @@ export default function CertificacionesModule({ BASE }) {
       const updatedProyectos = proyectosFromStorage.map((p) =>
         p.id === selectedProyecto.id ? { ...p, certificaciones: certs } : p
       );
+      await storage.set(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
       localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
       setProyectos(updatedProyectos);
       setSelectedCert(updatedCert);
@@ -337,7 +358,7 @@ export default function CertificacionesModule({ BASE }) {
       setSavedFeedback(true);
       setTimeout(() => setSavedFeedback(false), 2500);
     } catch (e) {
-      console.error("Error guardando certificación en localStorage:", e);
+      console.error("Error guardando certificación:", e);
     }
   }
 

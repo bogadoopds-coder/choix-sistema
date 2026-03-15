@@ -228,6 +228,43 @@ export default function DashboardModule() {
     return { totalOriginal, totalActualizado, impacto, impactoPct, count: codigosConActualizacion.size, tieneDatos: Object.keys(preciosActualizados || {}).length > 0 };
   }, [obras, preciosActualizados]);
 
+  const certificacionesResumen = useMemo(() => {
+    let totalCertificado = 0;
+    const porObra = obras.map((p) => {
+      const certs = p.certificaciones || [];
+      const totalCertificadoObra = certs.reduce((s, c) => s + (Number(c.totalPeriodo) || 0), 0);
+      totalCertificado += totalCertificadoObra;
+      const ultimo = certs.length > 0
+        ? [...certs].sort((a, b) => (b.numero ?? 0) - (a.numero ?? 0) || (b.fecha || "").localeCompare(a.fecha || ""))[0]
+        : null;
+      return {
+        proyecto: p,
+        totalCertificadoObra,
+        cantidadCertificaciones: certs.length,
+        ultimoCertificado: ultimo ? { numero: ultimo.numero, periodo: ultimo.periodo } : null,
+        pctAvanceCertificado: (p.items || []).length > 0
+          ? (() => {
+              const presupObra = (p.items || []).reduce((s, it) => s + itemSubtotal(it, p.iccPct ?? p.icc), 0);
+              return presupObra > 0 ? (100 * totalCertificadoObra) / presupObra : 0;
+            })()
+          : 0,
+      };
+    });
+    const pctAvanceGeneral = totalPresupuestado > 0 ? (100 * totalCertificado) / totalPresupuestado : 0;
+    const todosCertificados = obras.flatMap((p) => (p.certificaciones || []).map((c) => ({ ...c, _obra: p.nombre })));
+    const ultimoCertificadoGlobal =
+      todosCertificados.length > 0
+        ? todosCertificados.sort((a, b) => (b.numero ?? 0) - (a.numero ?? 0) || (b.fecha || "").localeCompare(a.fecha || ""))[0]
+        : null;
+    return {
+      totalCertificado,
+      pctAvanceGeneral,
+      cantidadCertificacionesTotal: porObra.reduce((s, x) => s + x.cantidadCertificaciones, 0),
+      ultimoCertificadoGlobal: ultimoCertificadoGlobal ? { numero: ultimoCertificadoGlobal.numero, periodo: ultimoCertificadoGlobal.periodo } : null,
+      porObra,
+    };
+  }, [obras, totalPresupuestado]);
+
   const TEAL = "#1A9B7B";
   const GOLD = "#c8a84b";
   const ROJO = "#e05a5a";
@@ -245,11 +282,19 @@ export default function DashboardModule() {
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "14px", marginBottom: "12px" }}>📊 RESUMEN GENERAL</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "#d8e4de" }}>
           <span>Total presupuestado: <strong style={{ color: GOLD }}>{ars(resumenEjecutivo.totalPresupuestado)}</strong></span>
+          <span>Total certificado: <strong style={{ color: TEAL }}>{ars(certificacionesResumen.totalCertificado)}</strong></span>
+          <span>% Avance general: <strong style={{ color: TEAL }}>{certificacionesResumen.pctAvanceGeneral.toFixed(1)}%</strong></span>
           <span>Total consumido: <strong>{ars(resumenEjecutivo.totalConsumido)}</strong></span>
           <span>Margen global: <strong style={{ color: margenColor }}>{ars(resumenEjecutivo.margen)} ({resumenEjecutivo.margenPct.toFixed(1)}%)</strong></span>
         </div>
-        <div style={{ fontSize: "11px", color: "#4a6055" }}>
+        <div style={{ fontSize: "11px", color: "#4a6055", marginBottom: "6px" }}>
           {resumenEjecutivo.cantidadObras} obras | {ars(resumenEjecutivo.totalPresupuestado)} presupuestado | Margen {resumenEjecutivo.margenPct.toFixed(1)}%
+        </div>
+        <div style={{ fontSize: "11px", color: "#4a6055" }}>
+          Cantidad de certificaciones: <strong style={{ color: "#d8e4de" }}>{certificacionesResumen.cantidadCertificacionesTotal}</strong>
+          {certificacionesResumen.ultimoCertificadoGlobal && (
+            <> | Último certificado: <strong style={{ color: TEAL }}>N° {certificacionesResumen.ultimoCertificadoGlobal.numero} - {certificacionesResumen.ultimoCertificadoGlobal.periodo}</strong></>
+          )}
         </div>
       </div>
 
@@ -315,6 +360,9 @@ export default function DashboardModule() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px", marginBottom: "16px" }}>
         {[
           { label: "Presupuesto total", value: ars(totalPresupuestado), color: GOLD },
+          { label: "Total certificado", value: ars(certificacionesResumen.totalCertificado), color: TEAL },
+          { label: "% Avance general", value: `${certificacionesResumen.pctAvanceGeneral.toFixed(1)}%`, color: TEAL },
+          { label: "Certificaciones", value: certificacionesResumen.cantidadCertificacionesTotal, color: "#4a6055" },
           { label: "Cantidad de ítems", value: totalItems, color: TEAL },
           {
             label: "Ítem más caro",
@@ -350,6 +398,9 @@ export default function DashboardModule() {
         ) : (
           saludPorObra.map(({ proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct }) => {
             const barColor = pctAvance < 80 ? TEAL : pctAvance <= 95 ? AMARILLO : ROJO;
+            const certObra = certificacionesResumen.porObra.find((x) => x.proyecto.id === p.id);
+            const pctAvanceCert = certObra?.pctAvanceCertificado ?? 0;
+            const barColorCert = pctAvanceCert < 80 ? TEAL : pctAvanceCert <= 95 ? AMARILLO : ROJO;
             return (
               <div key={p.id} style={{ marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid #1e2a22" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "6px" }}>
@@ -360,10 +411,20 @@ export default function DashboardModule() {
                   <span>Presupuesto: {ars(presupuestoTotal)}</span>
                   <span>Consumido: {ars(totalConsumido)}</span>
                 </div>
-                <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "6px" }}>% de avance: {pctAvance.toFixed(1)}%</div>
+                <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "4px" }}>% avance (consumido): {pctAvance.toFixed(1)}%</div>
                 <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
                   <div style={{ width: `${Math.min(100, pctAvance)}%`, height: "100%", background: barColor, borderRadius: "4px", transition: "width 0.2s" }} />
                 </div>
+                {certObra && certObra.cantidadCertificaciones > 0 && (
+                  <>
+                    <div style={{ fontSize: "11px", color: TEAL, fontWeight: 700, marginBottom: "4px" }}>
+                      % avance certificado: {pctAvanceCert.toFixed(1)}% {certObra.ultimoCertificado && `| Certificaciones: ${certObra.cantidadCertificaciones} | Último: N° ${certObra.ultimoCertificado.numero} - ${certObra.ultimoCertificado.periodo}`}
+                    </div>
+                    <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden", marginBottom: "6px" }}>
+                      <div style={{ width: `${Math.min(100, pctAvanceCert)}%`, height: "100%", background: barColorCert, borderRadius: "3px", transition: "width 0.2s" }} />
+                    </div>
+                  </>
+                )}
                 <div style={{ fontSize: "11px", color: desvio > 0 ? ROJO : "#4a6055" }}>
                   Desvío: {desvio >= 0 ? "+" : ""}{ars(desvio)} ({desvio >= 0 ? "+" : ""}{desvioPct.toFixed(1)}%)
                 </div>

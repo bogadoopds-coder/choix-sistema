@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import * as XLSX from "xlsx";
 import { uid } from "../../utils/id";
 import { ars } from "../../utils/format";
 import { precioVigente } from "../../utils/budgets";
@@ -161,6 +162,30 @@ function DetalleCertificacion({ proyecto, certificacion, preciosActualizados, on
     });
   }
 
+  function exportarExcel() {
+    const titulo = `Certificado N°${certificacion.numero} - Período ${periodo || certificacion.periodo || ""} - ${proyecto.nombre || "Obra"}`;
+    const cols = ["N°", "Descripción", "UM", "Cant. Presup", "Cant. Anterior", "Cant. Período", "Cant. Acumulada", "% Avance", "Precio Unit.", "Monto Período", "Monto Acumulado"];
+    const filas = items.map((it, idx) => [
+      idx + 1,
+      it.descripcion,
+      it.unidad,
+      it.cantPresup,
+      it.cantAnterior,
+      it.cantPeriodo,
+      it.cantAcumulada,
+      it.porcentaje != null ? it.porcentaje.toFixed(1) : "",
+      it.precioUnitario,
+      it.montoPeriodo,
+      it.montoAcumulado,
+    ]);
+    const aoa = [[titulo], [], cols, ...filas, [], ["TOTAL", "", "", "", "", "", "", "", "", totalPeriodo, totalAcumulado]];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Certificado");
+    const safeName = `Certificado_${certificacion.numero}_${(periodo || certificacion.periodo || "").replace(/\s+/g, "_")}_${(proyecto.codigo || "obra").replace(/\s+/g, "_")}.xlsx`;
+    XLSX.writeFile(wb, safeName);
+  }
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
@@ -175,6 +200,7 @@ function DetalleCertificacion({ proyecto, certificacion, preciosActualizados, on
             ))}
           </select>
           <button style={S.btn("gold", true)} onClick={handleSave}>GUARDAR</button>
+          <button style={S.btn("gold", true)} onClick={exportarExcel}>📥 EXPORTAR EXCEL</button>
         </div>
       </div>
 

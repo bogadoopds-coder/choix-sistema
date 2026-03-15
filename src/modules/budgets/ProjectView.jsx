@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, Fragment } from "react";
+import { useState, useMemo, useRef, Fragment, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { ars } from "../../utils/format";
 import { uid } from "../../utils/id";
@@ -6,9 +6,43 @@ import { precioVigente, semaforo } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { sendChat } from "../../services/ai/chatClient";
 import { CHANDIAS_RENDIMIENTOS } from "../../data/chandiasRendimientos";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+
+async function guardarPreciosAprendidos(items) {
+  try {
+    const docRef = doc(db, "configuracion", "preciosAprendidos");
+    const snap = await getDoc(docRef);
+    const existentes = snap.exists() ? snap.data().items || [] : [];
+
+    const mapa = {};
+    existentes.forEach((it) => {
+      const key = it.descripcion.toUpperCase().trim();
+      mapa[key] = it;
+    });
+
+    items.forEach((it) => {
+      if (it.descripcion && it.precioUnitario > 0) {
+        const key = it.descripcion.toUpperCase().trim();
+        mapa[key] = {
+          descripcion: it.descripcion.trim(),
+          unidad: it.unidad || "",
+          precioUnitario: it.precioUnitario,
+          fecha: new Date().toISOString().slice(0, 10),
+          origen: "pliego",
+        };
+      }
+    });
+
+    await setDoc(docRef, { items: Object.values(mapa) });
+    console.log("Precios aprendidos guardados:", Object.keys(mapa).length);
+  } catch (e) {
+    console.error("Error guardando precios aprendidos:", e);
+  }
+}
 
 // ─── SELECTOR BASE ────────────────────────────────────────────────────────────
 function SelectorBase({ BASE, onAdd, existentes }) {
@@ -844,7 +878,24 @@ function TabIA({ proyecto, addItems, BASE }) {
   const [error, setError] = useState("");
   const [fileWarning, setFileWarning] = useState("");
   const [usarPreciosPliego, setUsarPreciosPliego] = useState(true);
+  const [preciosAprendidos, setPreciosAprendidos] = useState([]);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const docRef = doc(db, "configuracion", "preciosAprendidos");
+        const snap = await getDoc(docRef);
+        if (cancelled) return;
+        const data = snap.exists() ? snap.data() : {};
+        setPreciosAprendidos(Array.isArray(data.items) ? data.items : []);
+      } catch (e) {
+        if (!cancelled) console.error("Error cargando precios aprendidos:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function pliegoTienePrecios() {
     if (!pliego || typeof pliego !== "string") return false;
@@ -1035,10 +1086,23 @@ function TabIA({ proyecto, addItems, BASE }) {
                 justificacion: "Precio del pliego original",
               });
             } else {
-              const match = findBestBaseMatch(desc, um, BASE);
-              const precioBase = (match && match.precio != null) ? match.precio : 0;
+              const keyDesc = desc.toUpperCase().trim();
+              const aprendido = preciosAprendidos.find((p) => (p.descripcion || "").toUpperCase().trim() === keyDesc && Number(p.precioUnitario) > 0);
+              let match;
+              let precioBase = 0;
+              let codigo = numero;
+              let justificacion = "Sin match en base";
+              if (aprendido) {
+                precioBase = Number(aprendido.precioUnitario);
+                justificacion = "Precio aprendido (pliego anterior)";
+              } else {
+                match = findBestBaseMatch(desc, um, BASE);
+                precioBase = (match && match.precio != null) ? match.precio : 0;
+                codigo = match && match.codigo ? match.codigo : numero;
+                justificacion = match && match.precio != null ? "Precio de base" : "Sin match en base";
+              }
               toAdd.push({
-                codigo: match && match.codigo ? match.codigo : numero,
+                codigo,
                 desc,
                 um,
                 precioBase,
@@ -1046,7 +1110,7 @@ function TabIA({ proyecto, addItems, BASE }) {
                 cantPresup: cant,
                 consumidoReal: 0,
                 esCustom: false,
-                justificacion: match && match.precio != null ? "Precio de base" : "Sin match en base",
+                justificacion,
               });
             }
           } else {
@@ -1066,6 +1130,19 @@ function TabIA({ proyecto, addItems, BASE }) {
       }
       if (toAdd.length > 0) {
         addItems(toAdd);
+        const conPrecio = toAdd.filter((it) => it.precioCustom != null && it.precioCustom > 0).map((it) => ({
+          descripcion: it.desc,
+          unidad: it.um || "",
+          precioUnitario: it.precioCustom,
+        }));
+        if (conPrecio.length > 0) {
+          guardarPreciosAprendidos(conPrecio).then(() => {
+            getDoc(doc(db, "configuracion", "preciosAprendidos")).then((snap) => {
+              const data = snap.exists() ? snap.data() : {};
+              setPreciosAprendidos(Array.isArray(data.items) ? data.items : []);
+            }).catch(() => {});
+          });
+        }
         setPliego("");
         setResultado(null);
         setError("");
@@ -1613,25 +1690,41 @@ Reglas:
         const um = (item.unidad != null && String(item.unidad).trim()) || "UN";
         const precioUnitario = typeof item.precio_unitario === "number" ? item.precio_unitario : parseFloat(item.precio_unitario);
         const usaPrecioIA = Number.isFinite(precioUnitario) && precioUnitario > 0;
-        const match = findBestBaseMatch(desc, um, BASE);
-        const matched = match && match.codigo;
+        const keyDesc = desc.toUpperCase().trim();
+        const aprendido = preciosAprendidos.find((p) => (p.descripcion || "").toUpperCase().trim() === keyDesc && Number(p.precioUnitario) > 0);
+        let match;
+        let matched = false;
+        let precioBase = 0;
+        let baseCodigo;
+        let matchInfo = { matched: false, palabrasBuscadas: [], mejorCandidato: "", overlapMejor: 0, minRequerido: 0 };
+        if (aprendido) {
+          precioBase = Number(aprendido.precioUnitario);
+          matched = true;
+          baseCodigo = "APRENDIDO";
+        } else {
+          match = findBestBaseMatch(desc, um, BASE);
+          matched = match && match.codigo;
+          precioBase = matched ? match.precio : 0;
+          baseCodigo = matched ? match.codigo : undefined;
+          matchInfo = match?.matchInfo ?? matchInfo;
+        }
         if (matched && typeof console !== "undefined" && console.log) {
-          console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", match.codigo, "P.BASE:", match.precio);
+          console.log("[AI/Pliego] Matched:", desc.slice(0, 50), "→", baseCodigo, "P.BASE:", precioBase);
         } else if (!matched && desc.trim().length > 0 && typeof console !== "undefined" && console.log) {
           console.log("[AI/Pliego] Unmatched:", desc.slice(0, 50), "(P.BASE = 0)");
         }
         return {
-          codigo: (matched ? match.codigo : "CUSTOM-IMP") + "-" + uid(),
-          baseCodigo: matched ? match.codigo : undefined,
+          codigo: (matched ? baseCodigo : "CUSTOM-IMP") + "-" + uid(),
+          baseCodigo: matched ? baseCodigo : undefined,
           desc: desc,
           um: um,
-          precioBase: matched ? match.precio : 0,
+          precioBase,
           precioCustom: usaPrecioIA ? precioUnitario : null,
           cantPresup: Number(item.cantidad) || 0,
           consumidoReal: 0,
           esCustom: !matched || usaPrecioIA,
-          justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : (item.observaciones != null ? String(item.observaciones) : ""),
-          matchInfo: match?.matchInfo ?? { matched: false, palabrasBuscadas: [], mejorCandidato: "", overlapMejor: 0, minRequerido: 0 },
+          justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : (aprendido ? "Precio aprendido (pliego anterior)" : (item.observaciones != null ? String(item.observaciones) : "")),
+          matchInfo,
         };
       })
     ).filter((r) => r != null && r.desc != null && String(r.desc).trim().length > 0);

@@ -3,6 +3,7 @@ import PresupuestosModule from "./modules/budgets/PresupuestosModule";
 import DashboardModule from "./modules/dashboard/DashboardModule";
 import ChatModule from "./modules/chat/ChatModule";
 import { PresupuestosModulePrecios } from "./modules/prices/PricesModule";
+import CertificacionesModule from "./modules/certificaciones/CertificacionesModule";
 import { BASE } from "./data/priceBase";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -24,7 +25,7 @@ const NAV_ITEMS = [
 ];
 
 // Modules that use chat IA (direct to ChatModule with pre-sent command)
-const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", oc: "/nueva_orden_compra", cert: "/nueva_certificacion", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
+const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", oc: "/nueva_orden_compra", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
 
 export default function ChoixIntegrado() {
   const [activeModule, setActiveModule] = useState("chat");
@@ -130,6 +131,7 @@ export default function ChoixIntegrado() {
           {activeModule === "dashboard" && <DashboardModule />}
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule BASE={BASE} />}
+          {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}
           {activeModule === "precios" && <PresupuestosModulePrecios BASE={BASE} />}
         </div>
       </div>

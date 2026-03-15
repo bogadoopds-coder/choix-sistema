@@ -434,27 +434,29 @@ export default function DashboardModule() {
         )}
       </div>
 
-      {/* Cost analysis by rubro */}
-      <div style={card}>
-        <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Análisis por rubro</div>
-        {rubroTotals.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
-        ) : (
-          rubroTotals.map((r) => (
-            <div key={r.nombre} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
-                <span style={{ color: GOLD, fontWeight: 700 }}>
-                  {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
-                </span>
+      {/* Análisis por rubro - oculto (código preservado) */}
+      {false && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Análisis por rubro</div>
+          {rubroTotals.length === 0 ? (
+            <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
+          ) : (
+            rubroTotals.map((r) => (
+              <div key={r.nombre} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
+                  <span style={{ color: GOLD, fontWeight: 700 }}>
+                    {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
+                  </span>
+                </div>
+                <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(100, r.pct)}%`, height: "100%", background: TEAL, borderRadius: "3px", minWidth: r.pct > 0 ? "4px" : 0 }} />
+                </div>
               </div>
-              <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden" }}>
-                <div style={{ width: `${Math.min(100, r.pct)}%`, height: "100%", background: TEAL, borderRadius: "3px", minWidth: r.pct > 0 ? "4px" : 0 }} />
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Resumen de precios actualizados */}
       <div style={card}>

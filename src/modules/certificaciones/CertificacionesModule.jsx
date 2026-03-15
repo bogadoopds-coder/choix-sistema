@@ -3,7 +3,9 @@ import { uid } from "../../utils/id";
 import { ars } from "../../utils/format";
 import { precioVigente } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
-import { storage } from "../../services/storage";
+
+const STORAGE_KEY_PROYECTOS = "choix_proyectos";
+const STORAGE_KEY_PRECIOS = "choix_precios";
 
 const ESTADOS = ["borrador", "presentado", "aprobado", "cobrado"];
 
@@ -236,29 +238,27 @@ export default function CertificacionesModule({ BASE }) {
   const [view, setView] = useState("obras"); // obras | certs | detalle
   const [selectedProyecto, setSelectedProyecto] = useState(null);
   const [selectedCert, setSelectedCert] = useState(null);
+  const [savedFeedback, setSavedFeedback] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await storage.get("choix_proyectos");
-        if (r?.value) setProyectos(JSON.parse(r.value));
-      } catch {}
-      try {
-        const r2 = await storage.get("choix_precios");
-        if (r2?.value) setPreciosActualizados(JSON.parse(r2.value));
-      } catch {}
-      setStorageReady(true);
-    })();
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setProyectos(parsed);
+      }
+    } catch (e) {
+      console.error("Error cargando proyectos desde localStorage:", e);
+    }
+    try {
+      const rawP = localStorage.getItem(STORAGE_KEY_PRECIOS);
+      if (rawP) {
+        const parsed = JSON.parse(rawP);
+        if (parsed && typeof parsed === "object") setPreciosActualizados(parsed);
+      }
+    } catch {}
+    setStorageReady(true);
   }, []);
-
-  useEffect(() => {
-    if (!storageReady) return;
-    (async () => {
-      try {
-        await storage.set("choix_proyectos", JSON.stringify(proyectos));
-      } catch {}
-    })();
-  }, [proyectos, storageReady]);
 
   function updateProyecto(id, patch) {
     setProyectos((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -297,10 +297,21 @@ export default function CertificacionesModule({ BASE }) {
     newCert.items = builtItems;
     newCert.totalPeriodo = totalPeriodo;
     newCert.totalAcumulado = totalAcumulado;
-    const updated = [...certs, newCert];
-    updateProyecto(selectedProyecto.id, { certificaciones: updated });
+    const updatedCerts = [...certs, newCert];
+    updateProyecto(selectedProyecto.id, { certificaciones: updatedCerts });
     setSelectedCert(newCert);
     setView("detalle");
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
+      const proyectosFromStorage = raw ? JSON.parse(raw) : [];
+      const updatedProyectos = proyectosFromStorage.map((p) =>
+        p.id === selectedProyecto.id ? { ...p, certificaciones: updatedCerts } : p
+      );
+      localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
+      setProyectos(updatedProyectos);
+    } catch (e) {
+      console.error("Error guardando nueva certificación en localStorage:", e);
+    }
   }
 
   function handleSelectCert(cert) {
@@ -310,11 +321,24 @@ export default function CertificacionesModule({ BASE }) {
 
   function handleSaveCert(updatedCert) {
     if (!selectedProyecto) return;
-    const certs = (selectedProyecto.certificaciones || []).map((c) =>
-      c.id === updatedCert.id ? updatedCert : c
-    );
-    updateProyecto(selectedProyecto.id, { certificaciones: certs });
-    setSelectedCert(updatedCert);
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_PROYECTOS);
+      const proyectosFromStorage = raw ? JSON.parse(raw) : [];
+      const certs = (selectedProyecto.certificaciones || []).map((c) =>
+        c.id === updatedCert.id ? updatedCert : c
+      );
+      const updatedProyectos = proyectosFromStorage.map((p) =>
+        p.id === selectedProyecto.id ? { ...p, certificaciones: certs } : p
+      );
+      localStorage.setItem(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
+      setProyectos(updatedProyectos);
+      setSelectedCert(updatedCert);
+      console.log("Certificación guardada:", updatedCert.id);
+      setSavedFeedback(true);
+      setTimeout(() => setSavedFeedback(false), 2500);
+    } catch (e) {
+      console.error("Error guardando certificación en localStorage:", e);
+    }
   }
 
   const activeProyecto = selectedProyecto ? (proyectos.find((p) => p.id === selectedProyecto.id) ?? selectedProyecto) : null;
@@ -350,13 +374,20 @@ export default function CertificacionesModule({ BASE }) {
           </>
         )}
         {view === "detalle" && activeProyecto && selectedCert && (
-          <DetalleCertificacion
-            proyecto={activeProyecto}
-            certificacion={selectedCert}
-            preciosActualizados={preciosActualizados}
-            onBack={() => { setView("certs"); setSelectedCert(null); }}
-            onSave={handleSaveCert}
-          />
+          <>
+            {savedFeedback && (
+              <div style={{ marginBottom: "12px", padding: "10px 14px", background: COLORS.verde + "22", border: `1px solid ${COLORS.verde}`, borderRadius: "8px", color: COLORS.verde, fontWeight: 600, fontSize: "13px" }}>
+                Certificación guardada
+              </div>
+            )}
+            <DetalleCertificacion
+              proyecto={activeProyecto}
+              certificacion={selectedCert}
+              preciosActualizados={preciosActualizados}
+              onBack={() => { setView("certs"); setSelectedCert(null); }}
+              onSave={handleSaveCert}
+            />
+          </>
         )}
       </div>
     </div>

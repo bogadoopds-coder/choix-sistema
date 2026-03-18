@@ -92,7 +92,7 @@ export function parsearTextoPDFProvincial(texto) {
     }
 
     // 2c) Ítem con número suelto: "5   Demolición   m3   24,75   125.072,47..."
-    // Solo si ya tenemos currentRubroId (hereda el rubro anterior)
+    // Solo si ya tenemos currentRubroId
     const itemSueltoMatch = line.match(/^(\d{1,2})\s{2,}/);
     if (itemSueltoMatch && currentRubroId) {
       const itemNum = itemSueltoMatch[1];
@@ -102,14 +102,23 @@ export function parsearTextoPDFProvincial(texto) {
         const unidad = unidadMatch[0];
         const desc = afterNum.slice(0, unidadMatch.index).trim();
         if (desc.length > 2) {
+          // Buscar números DESPUÉS de la unidad, ignorar los de la descripción
           const afterUnit = afterNum.slice(unidadMatch.index + unidad.length).trim();
-          const nums = afterUnit.match(/[\d.,]+/g) || [];
-          if (nums.length >= 1) {
-            const cantidad = parseNumeroArgentino(nums[0]);
-            const precioUnitario = nums.length >= 2 ? parseNumeroArgentino(nums[1]) : 0;
-            if (cantidad > 0) {
+          // Extraer solo números seguidos de $ o al inicio del afterUnit
+          // Formato: "   24,75   125.072,47 $   3.095.543,63 $   0,14%"
+          const numMatches = afterUnit.match(/[\d.]+,\d+/g) || afterUnit.match(/[\d.,]+/g) || [];
+          if (numMatches.length >= 2) {
+            const cantidad = parseNumeroArgentino(numMatches[0]);
+            const precioUnitario = parseNumeroArgentino(numMatches[1]);
+            if (cantidad > 0 && precioUnitario > 100) { // precio > 100 para filtrar porcentajes
               const descClean = desc.replace(/,/g, " ").replace(/\s+/g, " ").trim();
               const codigo = `${currentRubroId}.${itemNum}`;
+              const rubroNombre =
+                NOMBRES_RUBRO_PROVINCIAL[currentRubroId] || "Rubro " + currentRubroId;
+              if (currentRubroId && currentRubroId !== ultimoRubroNum) {
+                ultimoRubroNum = currentRubroId;
+                output.push("RUBRO: " + rubroNombre);
+              }
               output.push(`${codigo},${descClean},${unidad},${cantidad},${precioUnitario}`);
               itemsParseados.push({ numero: codigo, desc: descClean, unidad, cantidad, precio: precioUnitario });
               return true;

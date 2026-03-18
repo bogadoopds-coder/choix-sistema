@@ -58,6 +58,39 @@ export function parsearTextoPDFProvincial(texto) {
       }
     }
 
+    // 2b) Ítem con código ya unido: "1.2 descripción m2 12 107414"
+    const itemPuntoMatch = line.match(/^(\d{1,2}\.\d+(?:\.\d+)?)\s+/);
+    if (itemPuntoMatch) {
+      const codigo = itemPuntoMatch[1];
+      const rubroCol = codigo.split(".")[0];
+      if (!currentRubroId) currentRubroId = rubroCol;
+      const afterCodigo = line.slice(itemPuntoMatch[0].length).trim();
+      const unidadMatch = UNIDAD_REGEX.exec(afterCodigo);
+      if (unidadMatch) {
+        const unidad = unidadMatch[0];
+        const desc = afterCodigo.slice(0, unidadMatch.index).trim();
+        if (desc.length > 2) {
+          const afterUnit = afterCodigo.slice(unidadMatch.index + unidad.length).trim();
+          const nums = afterUnit.match(/[\d.,]+/g) || [];
+          if (nums.length >= 1) {
+            const cantidad = parseNumeroArgentino(nums[0]);
+            const precioUnitario = nums.length >= 2 ? parseNumeroArgentino(nums[1]) : 0;
+            if (cantidad > 0) {
+              const descClean = desc.replace(/,/g, " ").replace(/\s+/g, " ").trim();
+              const rubroNombre = NOMBRES_RUBRO_PROVINCIAL[currentRubroId] || "Rubro " + currentRubroId;
+              if (currentRubroId && currentRubroId !== ultimoRubroNum) {
+                ultimoRubroNum = currentRubroId;
+                output.push("RUBRO: " + rubroNombre);
+              }
+              output.push(`${codigo},${descClean},${unidad},${cantidad},${precioUnitario}`);
+              itemsParseados.push({ numero: codigo, desc: descClean, unidad, cantidad, precio: precioUnitario });
+              return true;
+            }
+          }
+        }
+      }
+    }
+
     // 2) Ítem: RUBRO + ITEM + DESIGNACION + UNIDAD + CANTIDAD + PRECIO UNITARIO
     //    Construir SIEMPRE `${currentRubroId}.${itemNum}`
     const itemStart = line.match(/^(\d{1,2})\s+(\d+)\s+/);
@@ -90,6 +123,9 @@ export function parsearTextoPDFProvincial(texto) {
 
     return false;
   }
+
+  console.log("=== PRIMERAS 30 LINEAS FILTRADAS ===");
+  lineasFiltradas.slice(0, 30).forEach((l, i) => console.log(i, JSON.stringify(l)));
 
   for (let i = 0; i < lineasFiltradas.length; i++) {
     const line = lineasFiltradas[i];

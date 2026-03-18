@@ -31,7 +31,7 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
   }
 
   async function llamarAgentePliegos(textoExtraido) {
-    const CHUNK_SIZE = 15000;
+    const CHUNK_SIZE = 8000;
     let todosItems = [];
 
     const chunks = [];

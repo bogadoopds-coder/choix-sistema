@@ -6,7 +6,7 @@ exports.handler = async (event) => {
   try {
     const { textoPDF, icc = 0 } = JSON.parse(event.body);
     // Limitar a primeras 15000 chars para evitar timeout
-    const textoLimitado = textoPDF.slice(0, 15000);
+    const textoLimitado = textoPDF.slice(0, 8000);
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     const system = `Sos un experto en presupuestación de obra pública argentina, 
@@ -54,7 +54,7 @@ Reglas:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 8000,
+        max_tokens: 3000,
         system,
         messages: [{ role: "user", content: userMessage }]
       })

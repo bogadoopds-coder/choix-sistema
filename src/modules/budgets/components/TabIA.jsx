@@ -31,6 +31,10 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
   }
 
   async function llamarAgentePliegos(textoExtraido) {
+    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("Falta VITE_ANTHROPIC_API_KEY (definila en .env y rebuild).");
+    }
     const CHUNK_SIZE = 8000;
     const chunks = [];
     for (let i = 0; i < textoExtraido.length; i += CHUNK_SIZE) {
@@ -40,10 +44,19 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
     let todosItems = [];
 
     for (const chunk of chunks) {
-      const res = await fetch("/.netlify/functions/chat", {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
         body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 3000,
+          system:
+            "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",
           messages: [
             {
               role: "user",
@@ -61,11 +74,12 @@ Fragmento:
 ${chunk}`,
             },
           ],
-          system:
-            "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",
-          max_tokens: 3000,
         }),
       });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 280)}`);
+      }
       const data = await res.json().catch(() => ({}));
       const texto = data.content?.[0]?.text || "";
       const jsonMatch = texto.match(/\{[\s\S]*\}/);

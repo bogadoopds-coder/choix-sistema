@@ -16,6 +16,7 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
   const [error, setError] = useState("");
   const [fileWarning, setFileWarning] = useState("");
   const [usarPreciosPliego, setUsarPreciosPliego] = useState(true);
+  const [usarAgente, setUsarAgente] = useState(true);
   const fileRef = useRef(null);
 
   function pliegoTienePrecios() {
@@ -27,6 +28,50 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
       const n = parseFloat(String(cols[4]).replace(",", "."));
       return Number.isFinite(n) && n > 0;
     });
+  }
+
+  async function llamarAgentePliegos(textoExtraido) {
+    const payload = { textoPDF: textoExtraido };
+    const response = await fetch("/.netlify/functions/agent-pliegos", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const raw = await response.text().catch(() => "");
+      throw new Error("Error llamando agente pliegos: " + raw.slice(0, 300));
+    }
+    const data = await response.json().catch(() => ({}));
+    const items = Array.isArray(data?.items) ? data.items : [];
+
+    const toAdd = items
+      .map((it) => {
+        const codigo = String(it?.codigo ?? "").trim();
+        const desc = String(it?.descripcion ?? "").trim();
+        const um = String(it?.unidad ?? "").trim();
+        const cantPresup = Number(it?.cantidad);
+        const precioCustom = Number(it?.precioUnitario);
+        if (!codigo || !desc || !um) return null;
+        if (!Number.isFinite(cantPresup) || cantPresup <= 0) return null;
+        if (!Number.isFinite(precioCustom) || precioCustom <= 0) return null;
+        return {
+          codigo,
+          desc,
+          um,
+          precioBase: 0,
+          precioCustom,
+          cantPresup,
+          consumidoReal: 0,
+          esCustom: true,
+          justificacion: "Importado por agente pliegos (Claude)",
+          rubroId: it?.rubroId ?? null,
+          rubroNombre: String(it?.rubroNombre ?? ""),
+        };
+      })
+      .filter(Boolean);
+
+    if (toAdd.length > 0) addItems(toAdd);
+    return toAdd.length;
   }
 
   async function handleFile(e) {
@@ -58,24 +103,45 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
           return;
         }
         let textoFinal = texto.trim() || "";
-        const csvParseado = parsearTextoPDFProvincial(textoFinal || texto.trim());
-        if (csvParseado && csvParseado.length > 50) {
-          textoFinal = csvParseado;
+        let itemsAgregados = 0;
+        if (usarAgente) {
+          try {
+            itemsAgregados = await llamarAgentePliegos(textoFinal);
+          } catch (err) {
+            setError("Error usando agente para extraer pliego: " + (err?.message || String(err)));
+          }
+          setPliego("");
+          if (texto.trim().length < 50) {
+            setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
+          } else {
+            setFileWarning(`PDF de ${numPaginas} página(s) procesado con agente. Ítems agregados: ${itemsAgregados}.`);
+            if (detectarCómputoEnTexto(texto)) {
+              setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+            }
+          }
           if (typeof console !== "undefined" && console.log) {
-            console.log("PDF parseado a CSV:", csvParseado.length, "chars");
+            console.log("PDF procesado con agente: " + numPaginas + " páginas, " + texto.length + " caracteres");
           }
-        }
-        setPliego(textoFinal);
-        if (texto.trim().length < 50) {
-          setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
         } else {
-          setFileWarning("PDF de " + numPaginas + " página(s) procesado localmente.");
-          if (detectarCómputoEnTexto(texto)) {
-            setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+          const csvParseado = parsearTextoPDFProvincial(textoFinal || texto.trim());
+          if (csvParseado && csvParseado.length > 50) {
+            textoFinal = csvParseado;
+            if (typeof console !== "undefined" && console.log) {
+              console.log("PDF parseado a CSV:", csvParseado.length, "chars");
+            }
           }
-        }
-        if (typeof console !== "undefined" && console.log) {
-          console.log("PDF procesado localmente: " + numPaginas + " páginas, " + texto.length + " caracteres");
+          setPliego(textoFinal);
+          if (texto.trim().length < 50) {
+            setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
+          } else {
+            setFileWarning("PDF de " + numPaginas + " página(s) procesado localmente.");
+            if (detectarCómputoEnTexto(texto)) {
+              setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
+            }
+          }
+          if (typeof console !== "undefined" && console.log) {
+            console.log("PDF procesado localmente: " + numPaginas + " páginas, " + texto.length + " caracteres");
+          }
         }
       } else if (ext === "xlsx" || ext === "xls") {
         const ab = await file.arrayBuffer();
@@ -725,6 +791,21 @@ Reglas:
         </button>
         {pliego && <div style={{ fontSize: "10px", color: COLORS.verde, marginTop: "4px" }}>✓ Texto cargado ({pliego.length} caracteres)</div>}
         {fileWarning && <div style={{ fontSize: "11px", color: COLORS.gold, marginTop: "6px" }}>⚠ {fileWarning}</div>}
+        <div style={{ marginTop: "8px", marginBottom: "6px" }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+            <input
+              type="checkbox"
+              checked={usarAgente}
+              onChange={(e) => setUsarAgente(e.target.checked)}
+              style={{ accentColor: COLORS.gold, marginTop: "2px" }}
+              disabled={loadingPdf}
+            />
+            <span>
+              <span style={{ fontWeight: 600 }}>Usar agente para PDF</span>
+              <div style={{ color: COLORS.muted, fontSize: "11px", marginTop: "2px" }}>Extrae ítems con un endpoint netlify en vez del parser local.</div>
+            </span>
+          </label>
+        </div>
       </div>
       <textarea
         style={{ ...S.input, height: "140px", resize: "vertical", lineHeight: "1.5" }}

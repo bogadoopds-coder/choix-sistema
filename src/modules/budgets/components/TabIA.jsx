@@ -32,22 +32,52 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
 
   async function llamarAgentePliegos(textoExtraido) {
     const CHUNK_SIZE = 8000;
-    let todosItems = [];
-
     const chunks = [];
     for (let i = 0; i < textoExtraido.length; i += CHUNK_SIZE) {
       chunks.push(textoExtraido.slice(i, i + CHUNK_SIZE));
     }
 
+    let todosItems = [];
+
     for (const chunk of chunks) {
-      const res = await fetch("/.netlify/functions/agent-pliegos", {
+      const res = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ textoPDF: chunk }),
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: `Extraé todos los ítems de este fragmento de cómputo y presupuesto provincial argentino. 
+Devolvé ÚNICAMENTE un JSON válido sin texto adicional, con esta estructura:
+{"items":[{"rubroId":"1","rubroNombre":"TRABAJOS PREPARATORIOS","codigo":"1.2","descripcion":"Cartel de obra","unidad":"m2","cantidad":12,"precioUnitario":107414.92}]}
+
+Reglas:
+- codigo siempre "rubro.item" ej: "1.2", "3.5"  
+- números en formato JS (punto decimal, sin puntos de miles)
+- ignorá totales de rubro, porcentajes y honorarios
+- si el ítem tiene número suelto dentro de un rubro, inferí el rubro del contexto
+
+Fragmento:
+${chunk}`,
+            },
+          ],
+          system:
+            "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",
+          max_tokens: 3000,
+        }),
       });
-      const data = await res.json();
-      if (data.items) {
-        todosItems = [...todosItems, ...data.items];
+      const data = await res.json().catch(() => ({}));
+      const texto = data.content?.[0]?.text || "";
+      const jsonMatch = texto.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed.items)) {
+            todosItems = [...todosItems, ...parsed.items];
+          }
+        } catch (_) {
+          /* ignorar chunk con JSON inválido */
+        }
       }
     }
 

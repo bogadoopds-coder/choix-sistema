@@ -91,6 +91,34 @@ export function parsearTextoPDFProvincial(texto) {
       }
     }
 
+    // 2c) Ítem con número suelto: "5   Demolición   m3   24,75   125.072,47..."
+    // Solo si ya tenemos currentRubroId (hereda el rubro anterior)
+    const itemSueltoMatch = line.match(/^(\d{1,2})\s{2,}/);
+    if (itemSueltoMatch && currentRubroId) {
+      const itemNum = itemSueltoMatch[1];
+      const afterNum = line.slice(itemSueltoMatch[0].length).trim();
+      const unidadMatch = UNIDAD_REGEX.exec(afterNum);
+      if (unidadMatch) {
+        const unidad = unidadMatch[0];
+        const desc = afterNum.slice(0, unidadMatch.index).trim();
+        if (desc.length > 2) {
+          const afterUnit = afterNum.slice(unidadMatch.index + unidad.length).trim();
+          const nums = afterUnit.match(/[\d.,]+/g) || [];
+          if (nums.length >= 1) {
+            const cantidad = parseNumeroArgentino(nums[0]);
+            const precioUnitario = nums.length >= 2 ? parseNumeroArgentino(nums[1]) : 0;
+            if (cantidad > 0) {
+              const descClean = desc.replace(/,/g, " ").replace(/\s+/g, " ").trim();
+              const codigo = `${currentRubroId}.${itemNum}`;
+              output.push(`${codigo},${descClean},${unidad},${cantidad},${precioUnitario}`);
+              itemsParseados.push({ numero: codigo, desc: descClean, unidad, cantidad, precio: precioUnitario });
+              return true;
+            }
+          }
+        }
+      }
+    }
+
     // 2) Ítem: RUBRO + ITEM + DESIGNACION + UNIDAD + CANTIDAD + PRECIO UNITARIO
     //    Construir SIEMPRE `${currentRubroId}.${itemNum}`
     const itemStart = line.match(/^(\d{1,2})\s+(\d+)\s+/);

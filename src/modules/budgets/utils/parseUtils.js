@@ -30,31 +30,64 @@ export function parsearTextoPDFProvincial(texto) {
   const output = [];
   const itemsParseados = [];
   let ultimoRubroNum = "";
+  let currentRubroId = null;
   let lineaPendiente = "";
 
   function procesarLinea(line) {
-    const itemMatch = line.match(REGEX_ITEM_PDF);
-    if (itemMatch) {
-      const [, num, subNum, desc, unidad, cantStr, precioStr] = itemMatch;
-      const numero = subNum ? num + "." + subNum : num;
-      const descClean = desc.trim().replace(/,/g, " ").replace(/\s+/g, " ").trim();
-      const cantidad = parseNumeroArgentino(cantStr);
-      const precio = parseNumeroArgentino(precioStr);
-      const rubroNum = String(numero.includes(".") ? numero.split(".")[0] : numero);
-      const nombreRubro = NOMBRES_RUBRO_PROVINCIAL[rubroNum] || "Rubro " + rubroNum;
-      if (rubroNum !== ultimoRubroNum) {
-        ultimoRubroNum = rubroNum;
-        output.push("RUBRO: " + nombreRubro);
+    if (!line) return false;
+
+    const UNIDAD_REGEX = /(m2|m3|ml|u|un|nº|n°|gl|dia|mes|kg|tn)/i;
+
+    // 1) Encabezado de RUBRO: entero + texto en mayúsculas + precio de rubro ($)
+    const rubroStart = line.match(/^(\d{1,2})\s+/);
+    if (rubroStart && (/\$/.test(line) || /%/.test(line)) && !UNIDAD_REGEX.test(line)) {
+      const rubroNum = rubroStart[1];
+      const after = line.slice(rubroStart[0].length).trim();
+      const primerToken = after.split(/\s+/)[0] || "";
+      const looksLikeItemRow = /^\d+$/.test(primerToken); // si viene otro número, suele ser RUBRO + ITEM
+      const hasUpperText = /[A-ZÁÉÍÓÚÑ]/.test(after);
+
+      if (!looksLikeItemRow && hasUpperText) {
+        currentRubroId = rubroNum;
+        if (rubroNum !== ultimoRubroNum) {
+          ultimoRubroNum = rubroNum;
+          const nombreRubro = NOMBRES_RUBRO_PROVINCIAL[rubroNum] || "Rubro " + rubroNum;
+          output.push("RUBRO: " + nombreRubro);
+        }
+        return true;
       }
-      output.push(`${numero},${descClean},${unidad},${cantidad},${precio}`);
-      itemsParseados.push({ numero, desc: descClean, unidad, cantidad, precio });
-      return true;
     }
-    const rubroMatch = line.match(REGEX_RUBRO_TOTAL);
-    if (rubroMatch) {
-      ultimoRubroNum = rubroMatch[1];
-      return true;
+
+    // 2) Ítem: RUBRO + ITEM + DESIGNACION + UNIDAD + CANTIDAD + PRECIO UNITARIO
+    //    Construir SIEMPRE `${currentRubroId}.${itemNum}`
+    const itemStart = line.match(/^(\d{1,2})\s+(\d+)\s+/);
+    if (itemStart) {
+      const rubroCol = itemStart[1];
+      const itemNum = itemStart[2];
+      const unidadMatch = UNIDAD_REGEX.exec(line);
+      if (unidadMatch && unidadMatch.index != null) {
+        const unidad = unidadMatch[0];
+        const desc = line.slice(itemStart[0].length, unidadMatch.index).trim();
+        if (desc.length > 2) {
+          if (!currentRubroId) currentRubroId = rubroCol;
+
+          const afterUnit = line.slice(unidadMatch.index + unidad.length).trim();
+          const nums = afterUnit.match(/[\d.,]+/g) || [];
+          if (nums.length >= 2) {
+            const cantidad = parseNumeroArgentino(nums[0]);
+            const precioUnitario = parseNumeroArgentino(nums[1]);
+            if (cantidad > 0 && precioUnitario >= 0) {
+              const descClean = desc.replace(/,/g, " ").replace(/\s+/g, " ").trim();
+              const codigo = `${currentRubroId}.${itemNum}`;
+              output.push(`${codigo},${descClean},${unidad},${cantidad},${precioUnitario}`);
+              itemsParseados.push({ numero: codigo, desc: descClean, unidad, cantidad, precio: precioUnitario });
+              return true;
+            }
+          }
+        }
+      }
     }
+
     return false;
   }
 
@@ -69,7 +102,7 @@ export function parsearTextoPDFProvincial(texto) {
       lineaPendiente = "";
       continue;
     }
-    if (/^\d+(?:\.\d+)?\s+(?:\d+\s+)?.+$/.test(line) && !REGEX_ITEM_PDF.test(line)) {
+    if (/^\d{1,2}\s+\d+\s+/.test(line) && !/(m2|m3|ml|u|un|nº|n°|gl|dia|mes|kg|tn)/i.test(line)) {
       lineaPendiente = line;
     } else {
       lineaPendiente = "";
@@ -152,4 +185,138 @@ export function buscarEnAprendidos(descripcion, unidad, preciosAprendidos) {
     }
   });
   return mejorMatch;
+}
+
+export const RUBROS_MAP = {
+  "1": "TRABAJOS PREPARATORIOS",
+  "2": "MOVIMIENTO DE SUELO",
+  "3": "ESTRUCTURA RESISTENTE",
+  "4": "ALBAÑILERÍA",
+  "5": "REVESTIMIENTOS",
+  "6": "PISOS Y ZÓCALOS",
+  "7": "MARMOLERÍA",
+  "8": "CUBIERTAS Y TECHADOS",
+  "9": "CIELORRASOS",
+  "10": "CARPINTERÍAS Y MOBILIARIO",
+  "11": "INSTALACIÓN ELÉCTRICA",
+  "12": "INSTALACIÓN SANITARIA",
+  "14": "INSTALACIÓN ELECTROMECÁNICA",
+  "15": "INSTALACIÓN ACONDICIONAMIENTO TÉRMICO",
+  "16": "INSTALACIÓN DE SEGURIDAD",
+  "17": "CRISTALES, ESPEJOS Y VIDRIOS",
+  "18": "PINTURAS",
+  "19": "SEÑALÉTICA",
+  "20": "OBRAS EXTERIORES",
+  "21": "LIMPIEZA DE OBRA",
+  "22": "VARIOS",
+  "23": "HONORARIOS REPRESENTANTE TÉCNICO",
+};
+
+export function getRubroFromCodigo(codigo) {
+  if (!codigo) return null;
+  const str = String(codigo).trim();
+  if (str.includes(".")) return str.split(".")[0];
+  if (RUBROS_MAP[str]) return str;
+  return str;
+}
+
+export function detectRowType(row) {
+  const codigo = String(row.codigo || "").trim();
+  const nombre = String(row.nombre || "").trim();
+  const tienePrecios = row.precioUnitario != null && row.precioUnitario !== "";
+  const tieneCantidad = row.cantidad != null && row.cantidad !== "";
+  if (RUBROS_MAP[codigo] && !tienePrecios) return "rubro";
+  if (/^\d+\.\d+$/.test(codigo) && !tienePrecios) return "subrubro";
+  if (tienePrecios || tieneCantidad) return "item";
+  if (nombre === nombre.toUpperCase() && nombre.length > 3 && !tienePrecios) return "subrubro";
+  return "item";
+}
+
+export function enrichItemsWithHierarchy(items) {
+  let currentRubroId = null;
+
+  return items.map((item) => {
+    const codigo = String(item.codigo || item.id || "").trim();
+
+    // Si el código tiene punto → el rubro es el primer segmento
+    // Ej: "3.1.2" → rubro 3 | "2.4.2" → rubro 2
+    if (codigo.includes(".")) {
+      const rubroCandidate = codigo.split(".")[0];
+      if (RUBROS_MAP[rubroCandidate]) {
+        currentRubroId = rubroCandidate;
+      }
+    }
+    // Si el código es entero y está en RUBROS_MAP Y no tiene cantidad/precio → es rubro encabezado
+    // (este caso no debería aparecer en los datos del Excel, pero por las dudas)
+    else if (RUBROS_MAP[codigo] && !item.cantidad && !item.precioBase) {
+      currentRubroId = codigo;
+    }
+    // Si es número entero con precio/cantidad → ítem suelto, hereda rubro actual
+
+    const rubroId = currentRubroId || "SIN_RUBRO";
+
+    return {
+      ...item,
+      type: "item",
+      rubroId,
+      rubroNombre: RUBROS_MAP[rubroId] || "SIN RUBRO",
+      subtotal: item.subtotal ?? (Number(item.cantidad || 0) * Number(item.precioBase || 0)),
+    };
+  });
+}
+
+export function groupByRubro(items) {
+  const enriched = enrichItemsWithHierarchy(items);
+  const grupos = {};
+  enriched.forEach((item) => {
+    const rId = item.rubroId || "SIN_RUBRO";
+    if (!grupos[rId]) {
+      grupos[rId] = {
+        rubroId: rId,
+        rubroNombre: RUBROS_MAP[rId] || item.rubroNombre || "SIN RUBRO",
+        precioRubro: 0,
+        items: [],
+      };
+    }
+    grupos[rId].items.push(item);
+    if (item.type === "item") grupos[rId].precioRubro += Number(item.subtotal || 0);
+  });
+  return Object.values(grupos).sort((a, b) => Number(a.rubroId) - Number(b.rubroId));
+}
+
+export function flattenWithHeaders(items) {
+  const grupos = groupByRubro(items);
+  const result = [];
+  grupos.forEach((grupo) => {
+    result.push({
+      type: "rubro",
+      rubroId: grupo.rubroId,
+      nombre: `${grupo.rubroId}. ${grupo.rubroNombre}`,
+      precioRubro: grupo.precioRubro,
+      _isHeader: true,
+    });
+    const subRubrosVistos = {};
+    grupo.items.forEach((item) => {
+      const codigo = String(item.codigo || item.id || "");
+      const partes = codigo.split(".");
+      const subKey = partes.length >= 2 ? `${partes[0]}.${partes[1]}` : null;
+      if (subKey && !subRubrosVistos[subKey]) {
+        subRubrosVistos[subKey] = true;
+        result.push({ type: "subrubro", rubroId: grupo.rubroId, subrubroId: subKey, nombre: subKey, _isHeader: true });
+      }
+      result.push(item);
+    });
+  });
+  return result;
+}
+
+export function parsePrecio(str) {
+  if (!str) return 0;
+  const clean = String(str).replace(/\$/g, "").replace(/\./g, "").replace(/,/g, ".").trim();
+  return parseFloat(clean) || 0;
+}
+
+export function formatPrecioARS(valor) {
+  if (valor == null || isNaN(valor)) return "$ 0,00";
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 }).format(valor);
 }

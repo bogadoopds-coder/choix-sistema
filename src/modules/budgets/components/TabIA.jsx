@@ -5,7 +5,7 @@ import { COLORS, S } from "../../../styles/theme";
 import { sendChat } from "../../../services/ai/chatClient";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
-import { extraerTextoPDF, parsearTextoPDFProvincial, detectarCómputoEnTexto, buscarEnAprendidos } from "../utils/parseUtils";
+import { extraerTextoPDF, parsearTextoPDFProvincial, detectarCómputoEnTexto, buscarEnAprendidos, RUBROS_MAP } from "../utils/parseUtils";
 import { findBestBaseMatch, guardarPreciosAprendidos, CHANDIAS_COMPRIMIDO } from "../utils/priceUtils";
 
 export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosAprendidos, detectarFormatoCómputo, parseComputeInteligente }) {
@@ -155,8 +155,26 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
       const text = pliego != null ? String(pliego) : "";
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       const toAdd = [];
+      let currentRubroNombre = "";
+      let currentRubroId = null;
+      const normalizeName = (s) =>
+        String(s || "")
+          .toUpperCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .trim();
+      const findRubroIdByName = (nombre) => {
+        const target = normalizeName(nombre);
+        const match = Object.keys(RUBROS_MAP).find((k) => normalizeName(RUBROS_MAP[k]) === target);
+        return match || null;
+      };
       for (const line of lines) {
-        if (line.startsWith("RUBRO:")) continue;
+        if (line.startsWith("RUBRO:")) {
+          const nombre = line.slice("RUBRO:".length).trim();
+          currentRubroNombre = nombre;
+          currentRubroId = findRubroIdByName(nombre);
+          continue;
+        }
         const parsed = parsePliegoLine(line);
         if (parsed) {
           toAdd.push({
@@ -200,6 +218,8 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
                 consumidoReal: 0,
                 esCustom: true,
                 justificacion: "Precio del pliego original",
+                rubroId: currentRubroId,
+                rubroNombre: currentRubroNombre,
               });
             } else {
               const aprendido = buscarEnAprendidos(desc, um, preciosAprendidos);
@@ -226,6 +246,8 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
                 consumidoReal: 0,
                 esCustom: false,
                 justificacion,
+                rubroId: currentRubroId,
+                rubroNombre: currentRubroNombre,
               });
             }
           } else {
@@ -239,6 +261,8 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
               consumidoReal: 0,
               esCustom: true,
               justificacion: "Importado desde Excel",
+              rubroId: currentRubroId,
+              rubroNombre: currentRubroNombre,
             });
           }
         }

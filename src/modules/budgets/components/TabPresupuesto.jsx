@@ -4,6 +4,7 @@ import { ars } from "../../../utils/format";
 import { uid } from "../../../utils/id";
 import { precioVigente, semaforo } from "../../../utils/budgets";
 import { COLORS, S } from "../../../styles/theme";
+import { flattenWithHeaders, formatPrecioARS } from "../utils/parseUtils";
 
 function SelectorBase({ BASE, onAdd, existentes }) {
   const [q, setQ] = useState("");
@@ -82,6 +83,54 @@ function SelectorBase({ BASE, onAdd, existentes }) {
   );
 }
 
+const RubroHeader = ({ data }) => (
+  <tr style={{ backgroundColor: "#1e3a5f", color: "#ffffff" }}>
+    <td
+      colSpan={9}
+      style={{
+        padding: "10px 14px",
+        fontWeight: "700",
+        fontSize: "13px",
+        textTransform: "uppercase",
+        letterSpacing: "0.5px",
+      }}
+    >
+      {data.nombre}
+    </td>
+    <td
+      style={{
+        padding: "10px 14px",
+        fontWeight: "700",
+        fontSize: "13px",
+        textAlign: "right",
+        color: "#a8d4f5",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {formatPrecioARS(data.precioRubro)}
+    </td>
+  </tr>
+);
+
+const SubrubroHeader = ({ data }) => (
+  <tr style={{ backgroundColor: "#e8edf5", borderLeft: "3px solid #1e3a5f" }}>
+    <td
+      colSpan={10}
+      style={{
+        padding: "7px 14px 7px 28px",
+        fontWeight: "600",
+        fontSize: "12px",
+        color: "#1e3a5f",
+        textTransform: "uppercase",
+        letterSpacing: "0.3px",
+      }}
+    >
+      {data.subrubroId && <span style={{ marginRight: 8, opacity: 0.6 }}>{data.subrubroId}</span>}
+      {data.nombre}
+    </td>
+  </tr>
+);
+
 export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem, preciosActualizados, BASE }) {
   const [search, setSearch] = useState("");
   const [showSelector, setShowSelector] = useState(false);
@@ -132,6 +181,14 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   }
 
   const filtered = proyecto.items.filter((i) => (i.desc && i.desc.toLowerCase().includes(search.toLowerCase())) || (i.codigo && i.codigo.includes(search)));
+  const itemsForHierarchy = filtered.map((item) => {
+    const codigoBase = item.baseCodigo ?? item.codigo;
+    const pVigente = precioVigente(codigoBase, item.precioBase, preciosActualizados);
+    const precio = item.precioCustom ?? pVigente;
+    const precioFinal = precio * iccFactor;
+    const subtotal = (item.cantPresup ?? 0) * precioFinal;
+    return { ...item, subtotal };
+  });
 
   return (
     <div style={{ ...S.panel }}>
@@ -189,7 +246,11 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
+              {flattenWithHeaders(itemsForHierarchy).map((row, idx) => {
+                if (row.type === "rubro") return <RubroHeader key={`rubro-${row.rubroId}-${idx}`} data={row} />;
+                if (row.type === "subrubro") return <SubrubroHeader key={`sub-${row.subrubroId}-${idx}`} data={row} />;
+
+                const item = row;
                 const codigoBase = item.baseCodigo ?? item.codigo;
                 const pVigente = precioVigente(codigoBase, item.precioBase, preciosActualizados);
                 const precio = item.precioCustom ?? pVigente;
@@ -199,10 +260,11 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                 const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
                 const isExpanded = expandedItem === item.codigo;
                 const mi = item.matchInfo;
+
                 return (
-                  <Fragment key={item.codigo}>
+                  <Fragment key={item.codigo || idx}>
                     <tr>
-                      <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap" }}>{item.codigo}</td>
+                      <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap", paddingLeft: "40px" }}>{item.codigo}</td>
                       <td
                         style={{ ...S.td, maxWidth: "220px", cursor: "pointer", userSelect: "none" }}
                         onClick={() => setExpandedItem(isExpanded ? null : item.codigo)}

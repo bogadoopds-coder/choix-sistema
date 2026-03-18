@@ -5,6 +5,8 @@ exports.handler = async (event) => {
 
   try {
     const { textoPDF, icc = 0 } = JSON.parse(event.body);
+    // Limitar a primeras 15000 chars para evitar timeout
+    const textoLimitado = textoPDF.slice(0, 15000);
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     const system = `Sos un experto en presupuestación de obra pública argentina, 
@@ -41,7 +43,7 @@ Reglas:
 - Si un ítem tiene número suelto (ej: "5 Demolición...") dentro del rubro 1, 
   su codigo es "1.5"`;
 
-    const userMessage = `Extraé todos los ítems de este cómputo y presupuesto provincial:\n\n${textoPDF}`;
+    const userMessage = `Extraé todos los ítems de este cómputo y presupuesto provincial:\n\n${textoLimitado}`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

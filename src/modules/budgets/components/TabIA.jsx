@@ -31,18 +31,27 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
   }
 
   async function llamarAgentePliegos(textoExtraido) {
-    const payload = { textoPDF: textoExtraido };
-    const response = await fetch("/.netlify/functions/agent-pliegos", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const raw = await response.text().catch(() => "");
-      throw new Error("Error llamando agente pliegos: " + raw.slice(0, 300));
+    const CHUNK_SIZE = 15000;
+    let todosItems = [];
+
+    const chunks = [];
+    for (let i = 0; i < textoExtraido.length; i += CHUNK_SIZE) {
+      chunks.push(textoExtraido.slice(i, i + CHUNK_SIZE));
     }
-    const data = await response.json().catch(() => ({}));
-    const items = Array.isArray(data?.items) ? data.items : [];
+
+    for (const chunk of chunks) {
+      const res = await fetch("/.netlify/functions/agent-pliegos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ textoPDF: chunk }),
+      });
+      const data = await res.json();
+      if (data.items) {
+        todosItems = [...todosItems, ...data.items];
+      }
+    }
+
+    const items = Array.isArray(todosItems) ? todosItems : [];
 
     const toAdd = items
       .map((it) => {

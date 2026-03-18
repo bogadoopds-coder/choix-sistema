@@ -104,13 +104,23 @@ export function parsearTextoPDFProvincial(texto) {
         if (desc.length > 2) {
           // Buscar números DESPUÉS de la unidad, ignorar los de la descripción
           const afterUnit = afterNum.slice(unidadMatch.index + unidad.length).trim();
-          // Extraer solo números seguidos de $ o al inicio del afterUnit
-          // Formato: "   24,75   125.072,47 $   3.095.543,63 $   0,14%"
-          const numMatches = afterUnit.match(/[\d.]+,\d+/g) || afterUnit.match(/[\d.,]+/g) || [];
-          if (numMatches.length >= 2) {
-            const cantidad = parseNumeroArgentino(numMatches[0]);
-            const precioUnitario = parseNumeroArgentino(numMatches[1]);
-            if (cantidad > 0 && precioUnitario > 100) { // precio > 100 para filtrar porcentajes
+          // Extraer pares número $ — formato argentino: "52,00   22.827,37 $"
+          // Buscar secuencias: número,decimales seguido de espacios y luego $ o número
+          // Nota: en el texto extraído a veces no queda el "$", por eso el patrón captura
+          // igualmente el formato numérico argentino típico (con miles).
+          // Formato típico a capturar: "24,75" o "22.827,37"
+          const numPattern = /(\d{1,3}(?:\.\d{3})*,\d+|\d+,\d+)/g;
+          const numMatches = afterUnit.match(numPattern) || [];
+          // Filtrar porcentajes: el último número suele ser el porcentaje (ej: 0,14%)
+          // Quedarse solo con los primeros dos que sean > 0
+          const numsValidos = numMatches.filter((n) => {
+            const v = parseNumeroArgentino(n);
+            return v > 0;
+          });
+          if (numsValidos.length >= 2) {
+            const cantidad = parseNumeroArgentino(numsValidos[0]);
+            const precioUnitario = parseNumeroArgentino(numsValidos[1]);
+            if (cantidad > 0 && precioUnitario > 100) {
               const descClean = desc.replace(/,/g, " ").replace(/\s+/g, " ").trim();
               const codigo = `${currentRubroId}.${itemNum}`;
               const rubroNombre =

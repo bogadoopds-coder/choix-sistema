@@ -323,6 +323,43 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                               ? `❌ Sin match. Palabras buscadas: ${(mi.palabrasBuscadas || []).join(", ")}. Mejor candidato: ${mi.mejorCandidato ?? ""} (${mi.overlapMejor ?? 0} coincidencias, mínimo requerido: ${mi.minRequerido ?? 0})`
                               : "✏️ Ítem custom - sin matching automático"}
                           </div>
+                          {item.rendimientos && (
+                            <div style={{ marginTop: "8px", borderTop: "1px solid #1e2a22", paddingTop: "8px" }}>
+                              <div style={{ fontWeight: 600, color: COLORS.verde, marginBottom: "4px", fontSize: "11px" }}>
+                                📐 Rendimientos Chandías — {(item.rendimientos.tipo || "").replace(/_/g, " ")}
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                {Object.entries(item.rendimientos)
+                                  .filter(([k]) => k !== "tipo" && k !== "nota")
+                                  .map(([k, v]) => (
+                                    <span
+                                      key={k}
+                                      style={{
+                                        background: "#0d1f17",
+                                        border: "1px solid #1e3a2a",
+                                        borderRadius: "4px",
+                                        padding: "2px 8px",
+                                        fontSize: "10px",
+                                        color: k.includes("oficial") || k.includes("ayudante") ? COLORS.gold : COLORS.text,
+                                      }}
+                                    >
+                                      {k.replace(/_/g, " ")}: <strong>{typeof v === "number" ? v.toFixed(2) : String(v)}</strong>
+                                    </span>
+                                  ))}
+                              </div>
+                              {(() => {
+                                const cant = Number(item.cantPresup ?? 0) || 0;
+                                const oficial_h = item.rendimientos?.oficial_h;
+                                const ayudante_h = item.rendimientos?.ayudante_h;
+                                if (typeof oficial_h !== "number" || typeof ayudante_h !== "number") return null;
+                                return (
+                                  <div style={{ marginTop: "4px", fontSize: "10px", color: COLORS.muted }}>
+                                    Por {item.um} · Cant: {cant} → Oficial: {(oficial_h * cant).toFixed(2)}h · Ayudante: {(ayudante_h * cant).toFixed(2)}h
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
                           {!item.esCustom && ((!mi || !mi.matched) || (item.precioBase ?? 0) === 0) && (
                             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
                               <input

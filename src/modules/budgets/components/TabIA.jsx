@@ -7,6 +7,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { extraerTextoPDF, parsearTextoPDFProvincial, detectarCómputoEnTexto, buscarEnAprendidos, RUBROS_MAP } from "../utils/parseUtils";
 import { findBestBaseMatch, guardarPreciosAprendidos, CHANDIAS_COMPRIMIDO } from "../utils/priceUtils";
+import { CHANDIAS_RENDIMIENTOS } from "../../../data/chandiasRendimientos";
 
 export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosAprendidos, detectarFormatoCómputo, parseComputeInteligente }) {
   const [pliego, setPliego] = useState("");
@@ -28,6 +29,67 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
       const n = parseFloat(String(cols[4]).replace(",", "."));
       return Number.isFinite(n) && n > 0;
     });
+  }
+
+  function obtenerRendimientosChandias(descripcion, unidad) {
+    const desc = descripcion.toLowerCase();
+    const ch = CHANDIAS_RENDIMIENTOS;
+
+    // Hormigon armado
+    if ((desc.includes("losa") || desc.includes("losa llena") || desc.includes("losa premold")) && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.losas, tipo: "hormigon_losas" };
+    if ((desc.includes("columna") || desc.includes("tronco")) && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.columnas, tipo: "hormigon_columnas" };
+    if ((desc.includes("viga") && !desc.includes("cinta")) && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.vigas, tipo: "hormigon_vigas" };
+    if ((desc.includes("viga cinta") || desc.includes("encadenado") || desc.includes("dintel")) && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.encadenados, tipo: "hormigon_encadenados" };
+    if (desc.includes("tabique") && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.tabiques, tipo: "hormigon_tabiques" };
+    if (desc.includes("escalera") && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.escalera, tipo: "hormigon_escalera" };
+    if ((desc.includes("base") || desc.includes("fundacion") || desc.includes("fundación") || desc.includes("pilotine")) && unidad === "m3")
+      return { ...ch.hormigon_armado_por_m3.materiales_base, ...ch.hormigon_armado_por_m3.bases, tipo: "hormigon_bases" };
+
+    // Mamposteria
+    if ((desc.includes("ladrillo cerámico") || desc.includes("ceramico")) && desc.includes("18x18x33") && unidad === "m2")
+      return { ...ch.mamposteria_por_m2.hueco_18x18x33, tipo: "mamposteria_18x18" };
+    if ((desc.includes("ladrillo cerámico") || desc.includes("ceramico")) && desc.includes("12x18x33") && unidad === "m2")
+      return { ...ch.mamposteria_por_m2.hueco_12x18x33, tipo: "mamposteria_12x18" };
+    if ((desc.includes("ladrillo cerámico") || desc.includes("ceramico")) && desc.includes("8x18x33") && unidad === "m2")
+      return { ...ch.mamposteria_por_m2.hueco_8x18x33, tipo: "mamposteria_8x18" };
+    if ((desc.includes("ladrillo común") || desc.includes("ladrillo comun")) && unidad === "m3")
+      return { ...ch.mamposteria_por_m2.ladrillo_comun_30cm, tipo: "mamposteria_comun" };
+
+    // Revoques
+    if ((desc.includes("revoque exterior") || desc.includes("revoque ext")) && unidad === "m2")
+      return { litros_mortero: ch.revoques_por_m2.exterior_comun_litros, oficial_h: ch.revoques_por_m2.oficial_h, ayudante_h: ch.revoques_por_m2.ayudante_h, tipo: "revoque_exterior" };
+    if ((desc.includes("revoque interior") || desc.includes("revoque int")) && unidad === "m2")
+      return { litros_mortero: ch.revoques_por_m2.interior_comun_litros, oficial_h: ch.revoques_por_m2.oficial_h, ayudante_h: ch.revoques_por_m2.ayudante_h, tipo: "revoque_interior" };
+
+    // Contrapisos
+    if (desc.includes("contrapiso") && desc.includes("arcilla") && unidad === "m2")
+      return { ...ch.contrapisos_por_m2.alivianado_arcilla_expandida, tipo: "contrapiso_arcilla" };
+    if (desc.includes("contrapiso") && unidad === "m2")
+      return { ...ch.contrapisos_por_m2.sobre_terreno_natural_15cm, tipo: "contrapiso_tn" };
+    if (desc.includes("carpeta") && unidad === "m2")
+      return { ...ch.contrapisos_por_m2.carpeta_cementicia_3cm, tipo: "carpeta" };
+
+    // Cubiertas
+    if (desc.includes("membrana") && unidad === "m2")
+      return { ...ch.cubiertas_por_m2.membrana_asfaltica_4mm, tipo: "membrana" };
+    if (desc.includes("chapa") && unidad === "m2")
+      return { ...ch.cubiertas_por_m2.chapa_sobre_estructura, tipo: "cubierta_chapa" };
+
+    // Pisos
+    if (desc.includes("mosaico") && desc.includes("granítico") && unidad === "m2")
+      return { ...ch.pisos_por_m2.mosaico_granitico_30x30, tipo: "piso_mosaico" };
+    if (desc.includes("cemento alisado") && unidad === "m2")
+      return { ...ch.pisos_por_m2.cemento_alisado, tipo: "piso_cemento_alisado" };
+    if (desc.includes("pulido") && unidad === "m2")
+      return { ...ch.pisos_por_m2.pulido_granitico, tipo: "piso_pulido" };
+
+    return null;
   }
 
   async function llamarAgentePliegos(textoExtraido) {
@@ -104,27 +166,30 @@ ${chunk}`,
     const items = Array.isArray(todosItems) ? todosItems : [];
 
     const toAdd = items
-      .map((it) => {
-        const codigo = String(it?.codigo ?? "").trim();
-        const desc = String(it?.descripcion ?? "").trim();
-        const um = String(it?.unidad ?? "").trim();
-        const cantPresup = Number(it?.cantidad);
-        const precioCustom = Number(it?.precioUnitario);
+      .map((item) => {
+        const codigo = String(item?.codigo ?? "").trim();
+        const desc = String(item?.descripcion ?? "").trim();
+        const um = String(item?.unidad ?? "").trim();
+        const cantPresup = Number(item?.cantidad);
+        const precioCustom = Number(item?.precioUnitario);
         if (!codigo || !desc || !um) return null;
         if (!Number.isFinite(cantPresup) || cantPresup <= 0) return null;
         if (!Number.isFinite(precioCustom) || precioCustom <= 0) return null;
+        const precioBase = 0;
+        const justificacion = "Importado por agente pliegos (Claude)";
         return {
           codigo,
-          desc,
-          um,
-          precioBase: 0,
-          precioCustom,
-          cantPresup,
+          desc: item.descripcion,
+          um: item.unidad,
+          precioBase: usarPreciosPliego ? (item.precioUnitario || 0) : precioBase,
+          precioCustom: usarPreciosPliego ? item.precioUnitario : null,
+          cantPresup: item.cantidad || 1,
           consumidoReal: 0,
-          esCustom: true,
-          justificacion: "Importado por agente pliegos (Claude)",
-          rubroId: it?.rubroId ?? null,
-          rubroNombre: String(it?.rubroNombre ?? ""),
+          esCustom: false,
+          rubroId: item.rubroId,
+          rubroNombre: item.rubroNombre,
+          justificacion,
+          rendimientos: obtenerRendimientosChandias(item.descripcion || "", item.unidad || ""),
         };
       })
       .filter(Boolean);

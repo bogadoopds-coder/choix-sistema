@@ -86,8 +86,13 @@ ${chunk}`,
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed.items)) {
-            todosItems = [...todosItems, ...parsed.items];
+          const parsedItems = parsed?.items;
+          // Algunos chunks pueden devolver "items" no como array (objeto único). Normalizamos para
+          // que el merge acumulativo no descarte esos ítems y termine pareciendo que solo quedó el último chunk.
+          if (Array.isArray(parsedItems)) {
+            todosItems = [...todosItems, ...parsedItems];
+          } else if (parsedItems && typeof parsedItems === "object") {
+            todosItems = [...todosItems, parsedItems];
           }
         } catch (_) {
           /* ignorar chunk con JSON inválido */

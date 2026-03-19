@@ -35,7 +35,7 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
     if (!apiKey) {
       throw new Error("Falta VITE_ANTHROPIC_API_KEY (definila en .env y rebuild).");
     }
-    const CHUNK_SIZE = 8000;
+    const CHUNK_SIZE = 5000;
     const chunks = [];
     for (let i = 0; i < textoExtraido.length; i += CHUNK_SIZE) {
       chunks.push(textoExtraido.slice(i, i + CHUNK_SIZE));
@@ -54,7 +54,7 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 3000,
+          max_tokens: 4000,
           system:
             "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",
           messages: [
@@ -98,6 +98,7 @@ ${chunk}`,
           /* ignorar chunk con JSON inválido */
         }
       }
+      console.log(`Chunk ${chunks.indexOf(chunk) + 1}/${chunks.length}: ${todosItems.length} items acumulados`);
     }
 
     const items = Array.isArray(todosItems) ? todosItems : [];

@@ -177,6 +177,7 @@ ${chunk}`,
         if (!Number.isFinite(precioCustom) || precioCustom <= 0) return null;
         const precioBase = 0;
         const justificacion = "Importado por agente pliegos (Claude)";
+        console.log("item desc:", item.descripcion, "→ desc:", item.descripcion);
         return {
           codigo,
           desc: item.descripcion,

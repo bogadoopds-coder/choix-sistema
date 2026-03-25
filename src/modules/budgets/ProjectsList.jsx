@@ -16,7 +16,12 @@ export default function ProjectsList({ proyectos, preciosActualizados, setActive
   return (
     <div>
       <div style={{ marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ color: COLORS.muted, fontSize: "11px" }}>{proyectos.length} OBRA{proyectos.length !== 1 ? "S" : ""}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+          <span style={{ color: COLORS.muted, fontSize: "11px" }}>{proyectos.length} OBRA{proyectos.length !== 1 ? "S" : ""}</span>
+          <button style={S.btn()} onClick={() => setView("nuevo")}>
+            + NUEVA OBRA
+          </button>
+        </div>
       </div>
       <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))" }}>
         {proyectos.map((p) => {

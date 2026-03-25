@@ -148,6 +148,7 @@ ${chunk}`,
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
+          console.log("Primer item del chunk:", JSON.stringify(parsed.items?.[0]));
           const parsedItems = parsed?.items;
           // Algunos chunks pueden devolver "items" no como array (objeto único). Normalizamos para
           // que el merge acumulativo no descarte esos ítems y termine pareciendo que solo quedó el último chunk.

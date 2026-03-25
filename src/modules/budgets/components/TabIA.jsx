@@ -181,7 +181,7 @@ ${chunk}`,
         console.log("item desc:", item.descripcion, "→ desc:", item.descripcion);
         return {
           codigo,
-          desc: item.descripcion,
+          desc,
           um: item.unidad,
           precioBase: usarPreciosPliego ? (item.precioUnitario || 0) : precioBase,
           precioCustom: usarPreciosPliego ? item.precioUnitario : null,

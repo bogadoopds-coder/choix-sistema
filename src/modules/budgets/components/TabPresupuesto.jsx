@@ -139,6 +139,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   const [expandedItem, setExpandedItem] = useState(null);
   const [precioDiag, setPrecioDiag] = useState({});
   const [precioApplied, setPrecioApplied] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiError, setAiError] = useState(null);
 
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
@@ -190,6 +193,57 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
     return { ...item, subtotal };
   });
 
+  async function analizarConIA() {
+    setAiError(null);
+    setAiAnalysis(null);
+    setAiLoading(true);
+    try {
+      const rows = flattenWithHeaders(itemsForHierarchy).filter((r) => r.type === "item");
+      const itemsPayload = rows.map((item) => {
+        const codigoBase = item.baseCodigo ?? item.codigo;
+        const pVigente = precioVigente(codigoBase, item.precioBase, preciosActualizados);
+        const precio = item.precioCustom ?? pVigente;
+        const precioFinal = precio * iccFactor;
+        return {
+          codigo: item.codigo,
+          desc: item.desc ?? item.descripcion ?? "",
+          cantPresup: item.cantPresup ?? 0,
+          consumidoReal: item.consumidoReal ?? 0,
+          precioFinal,
+        };
+      });
+      const res = await fetch("/.netlify/functions/agent-presupuesto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proyecto: {
+            id: proyecto.id,
+            nombre: proyecto.nombre,
+            codigo: proyecto.codigo,
+            cliente: proyecto.cliente,
+          },
+          items: itemsPayload,
+          iccPct: proyecto.iccPct,
+        }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) {
+        setAiError(typeof data.error === "string" ? data.error : `Error ${res.status}`);
+        return;
+      }
+      setAiAnalysis(typeof data.analysis === "string" ? data.analysis : "");
+    } catch (e) {
+      setAiError(e?.message || "Error al analizar");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <div style={{ ...S.panel }}>
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
@@ -202,6 +256,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
         </button>
         <span style={{ marginLeft: "auto", fontWeight: 700, color: COLORS.gold, fontSize: "14px" }}>{ars(total)}</span>
         <button style={S.btn()} onClick={exportarExcel} disabled={proyecto.items.length === 0}>📥 EXPORTAR EXCEL</button>
+        <button style={S.btn("", true)} type="button" onClick={analizarConIA} disabled={proyecto.items.length === 0 || aiLoading}>
+          {aiLoading ? "Analizando..." : "🤖 Analizar con IA"}
+        </button>
       </div>
 
       {showSelector && <SelectorBase BASE={BASE} onAdd={(items) => { addItems(items); setShowSelector(false); }} existentes={proyecto.items.map((i) => i.codigo)} />}
@@ -236,6 +293,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
       {proyecto.items.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px", color: COLORS.muted }}>Sin ítems. Agregá desde la base o usá la IA para leer un pliego.</div>
       ) : (
+        <>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -411,6 +469,36 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
             </tfoot>
           </table>
         </div>
+        {(aiAnalysis !== null || aiError !== null) && (
+          <div
+            style={{
+              marginTop: "16px",
+              padding: "14px 40px 14px 14px",
+              borderRadius: "8px",
+              background: "#0f1210",
+              border: `1px solid ${COLORS.border}`,
+              color: COLORS.text,
+              position: "relative",
+            }}
+          >
+            <button
+              type="button"
+              style={{ ...S.btn("red", true), padding: "2px 8px", position: "absolute", top: "10px", right: "10px" }}
+              onClick={() => {
+                setAiAnalysis(null);
+                setAiError(null);
+              }}
+            >
+              ✕
+            </button>
+            {aiError ? (
+              <div style={{ color: COLORS.rojo, fontSize: "12px" }}>{aiError}</div>
+            ) : (
+              <div style={{ whiteSpace: "pre-wrap", fontSize: "12px", lineHeight: 1.55 }}>{aiAnalysis}</div>
+            )}
+          </div>
+        )}
+        </>
       )}
     </div>
   );

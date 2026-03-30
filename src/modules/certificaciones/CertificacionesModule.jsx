@@ -79,17 +79,99 @@ function ListaObras({ proyectos, onSelect }) {
 
 // ─── Lista de certificaciones + botón nueva ────────────────────────────────────
 function ListaCertificaciones({ proyecto, preciosActualizados, onNewCert, onSelectCert }) {
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiError, setAiError] = useState(null);
+
   const certs = (proyecto.certificaciones || []).slice().sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0));
+
+  async function analizarConIA() {
+    setAiError(null);
+    setAiAnalysis(null);
+    setAiLoading(true);
+    try {
+      const res = await fetch("/.netlify/functions/agent-certificaciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proyecto: {
+            id: proyecto.id,
+            nombre: proyecto.nombre,
+            codigo: proyecto.codigo,
+            cliente: proyecto.cliente,
+          },
+          certificaciones: (proyecto.certificaciones || []).map((c) => ({
+            numero: c.numero,
+            fecha: c.fecha,
+            monto: c.totalPeriodo,
+            montoAcumulado: c.totalAcumulado,
+            estado: c.estado,
+            periodo: c.periodo,
+          })),
+        }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) {
+        setAiError(typeof data.error === "string" ? data.error : `Error ${res.status}`);
+        return;
+      }
+      setAiAnalysis(typeof data.analysis === "string" ? data.analysis : "");
+    } catch (e) {
+      setAiError(e?.message || "Error al analizar");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
         <div>
           <div style={{ color: COLORS.muted, fontSize: "11px" }}>OBRA: {proyecto.codigo} — {proyecto.nombre}</div>
         </div>
-        <button style={S.btn("gold", true)} onClick={onNewCert}>
-          + NUEVA CERTIFICACIÓN
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <button style={S.btn("", true)} type="button" onClick={analizarConIA} disabled={aiLoading}>
+            {aiLoading ? "Analizando..." : "🤖 Analizar con IA"}
+          </button>
+          <button style={S.btn("gold", true)} onClick={onNewCert}>
+            + NUEVA CERTIFICACIÓN
+          </button>
+        </div>
       </div>
+      {(aiAnalysis !== null || aiError !== null) && (
+        <div
+          style={{
+            marginBottom: "16px",
+            padding: "14px 40px 14px 14px",
+            borderRadius: "8px",
+            background: "#0f1210",
+            border: `1px solid ${COLORS.border}`,
+            color: "#ffffff",
+            position: "relative",
+          }}
+        >
+          <button
+            type="button"
+            style={{ ...S.btn("red", true), padding: "2px 8px", position: "absolute", top: "10px", right: "10px" }}
+            onClick={() => {
+              setAiAnalysis(null);
+              setAiError(null);
+            }}
+          >
+            ✕
+          </button>
+          {aiError ? (
+            <div style={{ color: COLORS.rojo, fontSize: "12px" }}>{aiError}</div>
+          ) : (
+            <div style={{ whiteSpace: "pre-wrap", fontSize: "12px", lineHeight: 1.55 }}>{aiAnalysis}</div>
+          )}
+        </div>
+      )}
       {certs.length === 0 ? (
         <div style={{ ...S.panel, textAlign: "center", color: COLORS.muted, padding: "40px" }}>
           Aún no hay certificaciones. Creá la primera.

@@ -148,7 +148,6 @@ ${chunk}`,
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
-          console.log("Primer item del chunk:", JSON.stringify(parsed.items?.[0]));
           const parsedItems = parsed?.items;
           // Algunos chunks pueden devolver "items" no como array (objeto único). Normalizamos para
           // que el merge acumulativo no descarte esos ítems y termine pareciendo que solo quedó el último chunk.
@@ -178,7 +177,6 @@ ${chunk}`,
         if (!Number.isFinite(precioCustom) || precioCustom <= 0) return null;
         const precioBase = 0;
         const justificacion = "Importado por agente pliegos (Claude)";
-        console.log("item desc:", item.descripcion, "→ desc:", item.descripcion);
         return {
           codigo,
           desc,

@@ -241,7 +241,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
             <thead>
               <tr>
                 {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "Consumido", "Semáf.", ""].map((h) => (
-                  <th key={h} style={S.th}>{h}</th>
+                  <th key={h} style={{ ...S.th, ...(h === "Descripción" ? { minWidth: "200px", width: "200px" } : {}) }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -267,7 +267,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                     <tr>
                       <td style={{ ...S.td, color: COLORS.muted, fontSize: "11px", whiteSpace: "nowrap", paddingLeft: "40px" }}>{item.codigo}</td>
                       <td
-                        style={{ ...S.td, maxWidth: "220px", cursor: "pointer", userSelect: "none" }}
+                        style={{ ...S.td, minWidth: "200px", width: "200px", cursor: "pointer", userSelect: "none" }}
                         onClick={() => setExpandedItem(isExpanded ? null : item.codigo)}
                         title="Click para ver info de matching"
                       >

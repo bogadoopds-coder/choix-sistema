@@ -271,7 +271,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                         onClick={() => setExpandedItem(isExpanded ? null : item.codigo)}
                         title="Click para ver info de matching"
                       >
-                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px" }}>{item.desc}</div>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: COLORS.text }}>{item.desc || item.descripcion || "—"}</div>
                         {item.esCustom && <span style={S.tag(COLORS.purple)}>CUSTOM</span>}
                       </td>
                     <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{item.um}</td>

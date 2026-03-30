@@ -170,9 +170,13 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
 
   function addItems(newItems) {
     const safe = Array.isArray(newItems) ? newItems.filter((i) => i != null && i.codigo != null && String(i.codigo).trim() !== "") : [];
-    const existing = new Set((proyecto.items || []).map((i) => i && i.codigo).filter(Boolean));
-    const toAdd = safe.filter((i) => !existing.has(i.codigo));
-    updateProyecto(proyecto.id, { items: [...(proyecto.items || []), ...toAdd] });
+    const existingItems = proyecto.items || [];
+    const updatedItems = existingItems.map((existing) => {
+      const newItem = safe.find((n) => n.codigo === existing.codigo);
+      return newItem ? { ...existing, ...newItem } : existing;
+    });
+    const brandNewItems = safe.filter((n) => !existingItems.some((e) => e.codigo === n.codigo));
+    updateProyecto(proyecto.id, { items: [...updatedItems, ...brandNewItems] });
   }
   function updateItem(codigo, patch) {
     updateProyecto(proyecto.id, { items: proyecto.items.map((i) => (i.codigo === codigo ? { ...i, ...patch } : i)) });

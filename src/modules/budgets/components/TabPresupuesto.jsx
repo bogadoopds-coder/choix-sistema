@@ -271,7 +271,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                         onClick={() => setExpandedItem(isExpanded ? null : item.codigo)}
                         title="Click para ver info de matching"
                       >
-                        <div style={{ fontSize: "12px", color: "red" }}>TEST: {item.desc || "vacio"}</div>
+                        <div style={{ fontSize: "12px", color: COLORS.text }}>{item.desc || item.descripcion || "—"}</div>
                         {item.esCustom && <span style={S.tag(COLORS.purple)}>CUSTOM</span>}
                       </td>
                     <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{item.um}</td>

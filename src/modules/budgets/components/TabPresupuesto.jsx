@@ -261,6 +261,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                 const isExpanded = expandedItem === item.codigo;
                 const mi = item.matchInfo;
 
+                console.log("render item:", item.codigo, "desc:", item.desc, "descripcion:", item.descripcion);
                 return (
                   <Fragment key={item.codigo || idx}>
                     <tr>

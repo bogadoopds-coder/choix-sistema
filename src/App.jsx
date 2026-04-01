@@ -18,7 +18,7 @@ const NAV_ITEMS = [
   { id: "presupuesto", icon: "📋", label: "Presupuestos",   sub: "Obras + precios" },
   { id: "parte",       icon: "🧾", label: "Parte Diario",   sub: "Registro diario" },
   { id: "rfi",         icon: "❓", label: "RFIs",           sub: "Consultas técnicas" },
-  { id: "oc",          icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
+  { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
   { id: "sh",          icon: "🦺", label: "SHyMA",          sub: "Seguridad e higiene" },
   { id: "calidad",     icon: "✅", label: "Calidad",        sub: "No conformidades" },
@@ -26,7 +26,7 @@ const NAV_ITEMS = [
 ];
 
 // Modules that use chat IA (direct to ChatModule with pre-sent command)
-const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", oc: "/nueva_orden_compra", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
+const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
 
 export default function ChoixIntegrado() {
   const [activeModule, setActiveModule] = useState("chat");

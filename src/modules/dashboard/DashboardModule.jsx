@@ -31,6 +31,9 @@ function rubroFromItem(it) {
 export default function DashboardModule() {
   const [proyectos, setProyectos] = useState([]);
   const [preciosActualizados, setPreciosActualizados] = useState({});
+  const [supervisorLoading, setSupervisorLoading] = useState(false);
+  const [supervisorAnalysis, setSupervisorAnalysis] = useState(null);
+  const [supervisorError, setSupervisorError] = useState(null);
   useEffect(() => {
     (async () => {
       try {
@@ -273,9 +276,129 @@ export default function DashboardModule() {
 
   const margenColor = resumenEjecutivo.margenPct > 10 ? TEAL : resumenEjecutivo.margenPct >= 5 ? AMARILLO : ROJO;
 
+  async function analizarSupervisor() {
+    setSupervisorError(null);
+    setSupervisorAnalysis(null);
+    setSupervisorLoading(true);
+    try {
+      const body = {
+        proyectos: obras.map((p) => ({
+          id: p.id,
+          nombre: p.nombre,
+          codigo: p.codigo,
+          cliente: p.cliente,
+          iccPct: p.iccPct ?? p.icc ?? 0,
+          items: (p.items || []).map((i) => ({
+            codigo: i.codigo,
+            desc: i.desc,
+            um: i.um,
+            cantPresup: i.cantPresup,
+            consumidoReal: i.consumidoReal,
+            precioCustom: i.precioCustom,
+            precioBase: i.precioBase,
+          })),
+          certificaciones: (p.certificaciones || []).map((c) => ({
+            numero: c.numero,
+            periodo: c.periodo,
+            fecha: c.fecha,
+            estado: c.estado,
+            totalPeriodo: c.totalPeriodo,
+            totalAcumulado: c.totalAcumulado,
+          })),
+          reqs: (p.reqs || []).map((r) => ({
+            id: r.id,
+            numero: r.numero,
+            fecha: r.fecha,
+            jefeObra: r.jefeObra,
+            estado: r.estado,
+            observaciones: r.observaciones,
+            items: (r.items || []).map((it) => ({
+              codigo: it.codigo,
+              desc: it.desc,
+              um: it.um,
+              cantSolicitada: it.cantSolicitada,
+              urgencia: it.urgencia,
+            })),
+          })),
+        })),
+      };
+      const res = await fetch("/.netlify/functions/agent-supervisor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) {
+        setSupervisorError(typeof data.error === "string" ? data.error : `Error ${res.status}`);
+        return;
+      }
+      setSupervisorAnalysis(typeof data.analysis === "string" ? data.analysis : "");
+    } catch (e) {
+      setSupervisorError(e?.message || "Error al analizar");
+    } finally {
+      setSupervisorLoading(false);
+    }
+  }
+
   return (
     <div style={{ padding: "20px", overflowY: "auto", height: "100%", background: "#0f1210" }}>
-      <div style={{ fontWeight: 800, fontSize: "18px", color: "#d8e4de", marginBottom: "16px" }}>📊 Dashboard General</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "16px" }}>
+        <div style={{ fontWeight: 800, fontSize: "18px", color: "#d8e4de" }}>📊 Dashboard General</div>
+        <button
+          type="button"
+          onClick={analizarSupervisor}
+          disabled={supervisorLoading}
+          style={{
+            background: TEAL,
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            padding: "8px 14px",
+            fontSize: "12px",
+            fontWeight: 600,
+            cursor: supervisorLoading ? "wait" : "pointer",
+            opacity: supervisorLoading ? 0.75 : 1,
+          }}
+        >
+          {supervisorLoading ? "Analizando..." : "🤖 Análisis General"}
+        </button>
+      </div>
+
+      {(supervisorAnalysis !== null || supervisorError !== null) && (
+        <div style={{ ...card, background: "#0f1210", border: "1px solid #1e2a22", position: "relative", padding: "14px 40px 14px 14px", marginBottom: "16px" }}>
+          <button
+            type="button"
+            onClick={() => {
+              setSupervisorAnalysis(null);
+              setSupervisorError(null);
+            }}
+            style={{
+              position: "absolute",
+              top: "10px",
+              right: "10px",
+              background: "#e05a5a",
+              color: "#fff",
+              border: "none",
+              borderRadius: "6px",
+              padding: "2px 8px",
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            ✕
+          </button>
+          {supervisorError ? (
+            <div style={{ color: ROJO, fontSize: "12px" }}>{supervisorError}</div>
+          ) : (
+            <div style={{ color: "#d8e4de", fontSize: "12px", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{supervisorAnalysis}</div>
+          )}
+        </div>
+      )}
 
       {/* 1. RESUMEN EJECUTIVO */}
       <div style={{ ...card, background: "#161f1a", border: "1px solid #243028", marginBottom: "16px" }}>

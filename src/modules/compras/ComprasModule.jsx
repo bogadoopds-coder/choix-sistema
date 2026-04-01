@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { uid } from "../../utils/id";
 import { today } from "../../utils/date";
+import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 
@@ -14,6 +15,240 @@ const ESTADO_BADGE = {
   aprobado: { bg: `${COLORS.verde}33`, color: COLORS.verde, label: "aprobado" },
   comprado: { bg: `${COLORS.muted}44`, color: COLORS.muted, label: "comprado" },
 };
+
+function urgenciaIaStyles(u) {
+  const s = String(u ?? "normal")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  if (s.includes("crit")) return { bg: `${COLORS.rojo}35`, color: COLORS.rojo, label: String(u || "crítico") };
+  if (s.includes("urgent")) return { bg: `${COLORS.amarillo}35`, color: COLORS.amarillo, label: String(u || "urgente") };
+  if (s === "alta" || s.includes("alta")) return { bg: "#f9731635", color: "#f97316", label: String(u || "alta") };
+  return { bg: `${COLORS.muted}55`, color: COLORS.muted, label: String(u || "normal") };
+}
+
+function diferenciaPctColor(pct) {
+  const n = Math.abs(Number(pct));
+  if (!Number.isFinite(n)) return COLORS.muted;
+  if (n < 10) return COLORS.verde;
+  if (n <= 20) return COLORS.amarillo;
+  return COLORS.rojo;
+}
+
+function criticidadStyles(c) {
+  const s = String(c ?? "").toLowerCase();
+  if (s.includes("rojo")) return { bg: `${COLORS.rojo}35`, color: COLORS.rojo };
+  if (s.includes("amarillo")) return { bg: `${COLORS.amarillo}35`, color: COLORS.amarillo };
+  if (s.includes("verde")) return { bg: `${COLORS.verde}35`, color: COLORS.verde };
+  return { bg: `${COLORS.muted}44`, color: COLORS.muted };
+}
+
+const chipBase = {
+  display: "inline-block",
+  padding: "3px 8px",
+  borderRadius: "6px",
+  fontSize: "10px",
+  marginRight: "6px",
+  marginBottom: "4px",
+  fontWeight: 600,
+};
+
+function AnalisisComprasVisual({ data }) {
+  if (!data || typeof data !== "object") {
+    return <div style={{ color: COLORS.muted, fontSize: "12px" }}>Sin datos de análisis.</div>;
+  }
+
+  const reqsAi = Array.isArray(data.reqs) ? data.reqs : [];
+  const validacion = Array.isArray(data.validacionPrecios) ? data.validacionPrecios : [];
+  const faltantes = Array.isArray(data.faltantes) ? data.faltantes : [];
+  const ordenes = Array.isArray(data.ordenesCompra) ? data.ordenesCompra : [];
+  const proy = data.proyeccion && typeof data.proyeccion === "object" ? data.proyeccion : null;
+  const resumen = data.resumen != null ? String(data.resumen) : "";
+
+  const sectionTitle = (t) => (
+    <div style={{ fontWeight: 700, fontSize: "12px", color: COLORS.gold, marginTop: "16px", marginBottom: "10px", letterSpacing: "0.04em" }}>{t}</div>
+  );
+
+  return (
+    <div style={{ color: COLORS.text, fontSize: "12px", lineHeight: 1.45, maxHeight: "70vh", overflowY: "auto", paddingRight: "6px" }}>
+      {sectionTitle("REQS")}
+      {reqsAi.length === 0 ? (
+        <div style={{ color: COLORS.muted, fontSize: "11px" }}>Sin análisis de REQs.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {reqsAi.map((r, i) => {
+            const u = urgenciaIaStyles(r.urgencia);
+            const enPres = Array.isArray(r.itemsEnPresupuesto) ? r.itemsEnPresupuesto : [];
+            const exc = Array.isArray(r.itemsExcepcion) ? r.itemsExcepcion : [];
+            return (
+              <div
+                key={i}
+                style={{
+                  background: COLORS.subtle,
+                  border: `1px solid ${COLORS.border}`,
+                  borderRadius: "8px",
+                  padding: "12px",
+                }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <span style={{ fontWeight: 800, color: COLORS.gold }}>REQ N° {r.numero ?? "—"}</span>
+                  <span style={{ color: COLORS.text }}>{r.jefeObra || "—"}</span>
+                  <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: "6px", background: u.bg, color: u.color }}>{u.label}</span>
+                  <span style={{ marginLeft: "auto", fontWeight: 700, color: COLORS.gold }}>{ars(Number(r.montoEstimado) || 0)}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "4px" }}>En presupuesto</div>
+                <div>
+                  {enPres.length === 0 ? (
+                    <span style={{ color: COLORS.muted, fontSize: "10px" }}>—</span>
+                  ) : (
+                    enPres.map((x, j) => (
+                      <span key={j} style={{ ...chipBase, background: `${COLORS.verde}30`, color: COLORS.verde }}>
+                        {String(x)}
+                      </span>
+                    ))
+                  )}
+                </div>
+                <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "8px", marginBottom: "4px" }}>Excepciones</div>
+                <div>
+                  {exc.length === 0 ? (
+                    <span style={{ color: COLORS.muted, fontSize: "10px" }}>—</span>
+                  ) : (
+                    exc.map((x, j) => (
+                      <span key={j} style={{ ...chipBase, background: `${COLORS.amarillo}28`, color: COLORS.amarillo }}>
+                        {String(x)}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {sectionTitle("VALIDACIÓN DE PRECIOS")}
+      {validacion.length === 0 ? (
+        <div style={{ color: COLORS.muted, fontSize: "11px" }}>Sin ítems en validación.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+            <thead>
+              <tr>
+                {["Código", "Descripción", "UM", "Precio actual", "Precio mercado", "Diferencia %", "Fuente", "Recomendación"].map((h) => (
+                  <th key={h} style={{ ...S.th, whiteSpace: "nowrap" }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {validacion.map((row, i) => {
+                const pct = Number(row.diferenciaPct);
+                const dc = diferenciaPctColor(pct);
+                return (
+                  <tr key={i}>
+                    <td style={S.td}>{row.codigo ?? "—"}</td>
+                    <td style={{ ...S.td, maxWidth: "160px" }}>{row.desc ?? "—"}</td>
+                    <td style={{ ...S.td, textAlign: "center", color: COLORS.muted }}>{row.um ?? "—"}</td>
+                    <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>{ars(Number(row.precioActual) || 0)}</td>
+                    <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>{ars(Number(row.precioMercado) || 0)}</td>
+                    <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: dc, whiteSpace: "nowrap" }}>
+                      {Number.isFinite(pct) ? `${pct.toFixed(1)}%` : "—"}
+                    </td>
+                    <td style={{ ...S.td, fontSize: "10px", color: COLORS.muted, maxWidth: "120px" }}>{row.fuente ?? "—"}</td>
+                    <td style={{ ...S.td, fontSize: "10px", maxWidth: "140px" }}>{row.recomendacion ?? "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {sectionTitle("FALTANTES")}
+      {faltantes.length === 0 ? (
+        <div style={{ color: COLORS.muted, fontSize: "11px" }}>Sin faltantes detectados.</div>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: "18px" }}>
+          {faltantes.map((f, i) => {
+            const cr = criticidadStyles(f.criticidad);
+            return (
+              <li key={i} style={{ marginBottom: "10px" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "8px" }}>
+                  <strong style={{ color: COLORS.gold }}>{f.codigo ?? "—"}</strong>
+                  <span>{f.desc ?? "—"}</span>
+                  <span style={{ color: COLORS.muted, fontSize: "11px" }}>
+                    {f.um != null ? `${f.um} · ` : ""}
+                    faltante: {f.cantFaltante != null ? Number(f.cantFaltante).toLocaleString("es-AR") : "—"}
+                  </span>
+                  <span style={{ fontWeight: 700 }}>{ars(Number(f.montoEstimado) || 0)}</span>
+                  <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "2px 6px", borderRadius: "4px", background: cr.bg, color: cr.color }}>{f.criticidad ?? "—"}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {sectionTitle("ÓRDENES DE COMPRA SUGERIDAS")}
+      {ordenes.length === 0 ? (
+        <div style={{ color: COLORS.muted, fontSize: "11px" }}>Sin sugerencias de OC.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {ordenes.map((oc, i) => (
+            <div
+              key={i}
+              style={{
+                background: COLORS.subtle,
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: "8px",
+                padding: "12px",
+              }}
+            >
+              <div style={{ fontWeight: 700, color: COLORS.text, marginBottom: "6px" }}>{oc.proveedor ?? "Proveedor"}</div>
+              <div style={{ fontSize: "11px", color: COLORS.muted, marginBottom: "6px" }}>
+                {(Array.isArray(oc.items) ? oc.items : []).map((it, j) => (
+                  <span key={j} style={{ ...chipBase, background: `${COLORS.blue}22`, color: COLORS.text }}>
+                    {String(it)}
+                  </span>
+                ))}
+              </div>
+              <div style={{ fontWeight: 700, color: COLORS.gold }}>Total: {ars(Number(oc.montoTotal) || 0)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sectionTitle("PROYECCIÓN")}
+      {!proy ? (
+        <div style={{ color: COLORS.muted, fontSize: "11px" }}>Sin datos de proyección.</div>
+      ) : (
+        <div style={{ background: COLORS.subtle, border: `1px solid ${COLORS.border}`, borderRadius: "8px", padding: "12px" }}>
+          <div style={{ marginBottom: "6px" }}>
+            <span style={{ color: COLORS.muted }}>Monto restante estimado: </span>
+            <strong style={{ color: COLORS.gold }}>{ars(Number(proy.montoRestante) || 0)}</strong>
+          </div>
+          <div style={{ marginBottom: "8px" }}>
+            <span style={{ color: COLORS.muted }}>Alcanza presupuesto: </span>
+            <strong style={{ color: proy.alcanzaPresupuesto ? COLORS.verde : COLORS.amarillo }}>{proy.alcanzaPresupuesto ? "Sí" : "No"}</strong>
+          </div>
+          {Array.isArray(proy.alertas) && proy.alertas.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: "18px", color: COLORS.text, fontSize: "11px" }}>
+              {proy.alertas.map((a, i) => (
+                <li key={i} style={{ marginBottom: "4px" }}>
+                  {String(a)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {sectionTitle("RESUMEN")}
+      <div style={{ fontSize: "12px", color: COLORS.text, whiteSpace: "pre-wrap" }}>{resumen || "—"}</div>
+    </div>
+  );
+}
 
 function emptyLineItem() {
   return {
@@ -106,10 +341,12 @@ function ListaReqs({
           </button>
           {aiError ? (
             <div style={{ color: COLORS.rojo, fontSize: "12px" }}>{aiError}</div>
-          ) : (
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: "11px", lineHeight: 1.5, fontFamily: "inherit" }}>
-              {typeof aiAnalysis === "string" ? aiAnalysis : JSON.stringify(aiAnalysis, null, 2)}
+          ) : typeof aiAnalysis === "string" ? (
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: "11px", lineHeight: 1.5, fontFamily: "inherit", color: COLORS.text }}>
+              {aiAnalysis}
             </pre>
+          ) : (
+            <AnalisisComprasVisual data={aiAnalysis} />
           )}
         </div>
       )}

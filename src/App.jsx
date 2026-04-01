@@ -4,6 +4,7 @@ import DashboardModule from "./modules/dashboard/DashboardModule";
 import ChatModule from "./modules/chat/ChatModule";
 import { PresupuestosModulePrecios } from "./modules/prices/PricesModule";
 import CertificacionesModule from "./modules/certificaciones/CertificacionesModule";
+import ComprasModule from "./modules/compras/ComprasModule";
 import { BASE } from "./data/priceBase";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -132,6 +133,7 @@ export default function ChoixIntegrado() {
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule BASE={BASE} />}
           {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}
+          {activeModule === "compras" && <ComprasModule />}
           {activeModule === "precios" && <PresupuestosModulePrecios BASE={BASE} />}
         </div>
       </div>

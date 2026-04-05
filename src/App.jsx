@@ -5,6 +5,7 @@ import ChatModule from "./modules/chat/ChatModule";
 import { PresupuestosModulePrecios } from "./modules/prices/PricesModule";
 import CertificacionesModule from "./modules/certificaciones/CertificacionesModule";
 import ComprasModule from "./modules/compras/ComprasModule";
+import SeguimientoCertificadosModule from "./modules/seguimiento-certificados/SeguimientoCertificadosModule";
 import { BASE } from "./data/priceBase";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { id: "rfi",         icon: "❓", label: "RFIs",           sub: "Consultas técnicas" },
   { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
+  { id: "segcert",     icon: "🚦", label: "Seguim. Cert.", sub: "Cobros x organismo" },
   { id: "sh",          icon: "🦺", label: "SHyMA",          sub: "Seguridad e higiene" },
   { id: "calidad",     icon: "✅", label: "Calidad",        sub: "No conformidades" },
   { id: "precios",     icon: "💲", label: "Base Precios",   sub: "948 ítems + historial" },
@@ -134,6 +136,7 @@ export default function ChoixIntegrado() {
           {activeModule === "presupuesto" && <PresupuestosModule BASE={BASE} />}
           {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}
           {activeModule === "compras" && <ComprasModule />}
+          {activeModule === "segcert" && <SeguimientoCertificadosModule />}
           {activeModule === "precios" && <PresupuestosModulePrecios BASE={BASE} />}
         </div>
       </div>

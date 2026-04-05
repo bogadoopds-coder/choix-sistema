@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { storage } from "../../services/storage";
 import { precioVigente } from "../../utils/budgets";
+import { RUBROS_MAP } from "../budgets/utils/parseUtils";
 
 const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 
@@ -24,8 +25,15 @@ function itemConsumido(it, iccPct) {
 }
 
 function rubroFromItem(it) {
+  const rid =
+    it.rubroId != null && String(it.rubroId).trim() !== ""
+      ? String(it.rubroId).trim()
+      : null;
+  if (rid && RUBROS_MAP[rid]) return RUBROS_MAP[rid];
   const c = (it.codigo || "").trim();
-  return /^\d{2}\.\d{2}/.test(c) ? c.slice(0, 6) : "Otros";
+  const key = c.split(".")[0];
+  if (key && RUBROS_MAP[key]) return RUBROS_MAP[key];
+  return "Otros";
 }
 
 export default function DashboardModule() {
@@ -38,7 +46,19 @@ export default function DashboardModule() {
     (async () => {
       try {
         const r = await storage.get("choix_proyectos");
-        if (r?.value) setProyectos(JSON.parse(r.value));
+        if (r?.value) {
+          setProyectos(JSON.parse(r.value));
+          console.log(
+            "Primeros 5 items:",
+            JSON.parse(r.value).slice
+              ? JSON.parse(r.value)[0]?.items?.slice(0, 5).map((i) => ({
+                  codigo: i.codigo,
+                  rubroId: i.rubroId,
+                  desc: i.desc,
+                }))
+              : "no data"
+          );
+        }
       } catch {}
       try {
         let pr = await storage.get("choix_precios_actualizados");

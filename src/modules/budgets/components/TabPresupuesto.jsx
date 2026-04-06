@@ -1,10 +1,12 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, Fragment, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { ars } from "../../../utils/format";
 import { uid } from "../../../utils/id";
 import { precioVigente, semaforo } from "../../../utils/budgets";
 import { COLORS, S } from "../../../styles/theme";
 import { flattenWithHeaders, formatPrecioARS } from "../utils/parseUtils";
+import { laborCostFromRendimientosUocra, UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
+import { getUocraRates } from "../../../services/storage";
 
 function SelectorBase({ BASE, onAdd, existentes }) {
   const [q, setQ] = useState("");
@@ -142,8 +144,31 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiError, setAiError] = useState(null);
+  const [uocraRates, setUocraRates] = useState(() => ({ ...UOCRA_RATES_DEFAULT }));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rates = await getUocraRates();
+      if (!cancelled) setUocraRates(rates);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
+
+  const totalMoUocraPresupuesto = useMemo(() => {
+    let s = 0;
+    for (const it of proyecto.items || []) {
+      const r = it.rendimientos;
+      if (!r) continue;
+      const v = laborCostFromRendimientosUocra(r, Number(it.cantPresup) || 0, uocraRates);
+      if (v != null) s += v;
+    }
+    return s;
+  }, [proyecto.items, uocraRates]);
 
   function exportarExcel() {
     const fecha = new Date().toLocaleDateString("es-AR");
@@ -259,6 +284,19 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
         <button style={S.btn("", true)} type="button" onClick={analizarConIA} disabled={proyecto.items.length === 0 || aiLoading}>
           {aiLoading ? "Analizando..." : "🤖 Analizar con IA"}
         </button>
+      </div>
+      <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "12px", lineHeight: 1.45 }}>
+        <span>
+          MO UOCRA ref. {uocraRates.vigencia} · zona {uocraRates.zona} · Of. ${uocraRates.oficial_hora}/h · Medio of. ${uocraRates.medioOficial_hora}/h · Ayud. ${uocraRates.ayudante_hora}/h ·{" "}
+          <a href={uocraRates.fuenteUrl} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.gold }}>
+            fuente
+          </a>
+        </span>
+        {totalMoUocraPresupuesto > 0 && (
+          <span style={{ marginLeft: "10px", color: COLORS.text }}>
+            Σ MO rendimientos: <strong style={{ color: COLORS.gold }}>{ars(totalMoUocraPresupuesto)}</strong>
+          </span>
+        )}
       </div>
 
       {showSelector && <SelectorBase BASE={BASE} onAdd={(items) => { addItems(items); setShowSelector(false); }} existentes={proyecto.items.map((i) => i.codigo)} />}
@@ -406,13 +444,34 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                                   ))}
                               </div>
                               {(() => {
+                                const r = item.rendimientos;
                                 const cant = Number(item.cantPresup ?? 0) || 0;
-                                const oficial_h = item.rendimientos?.oficial_h;
-                                const ayudante_h = item.rendimientos?.ayudante_h;
-                                if (typeof oficial_h !== "number" || typeof ayudante_h !== "number") return null;
+                                const oficial_h = r?.oficial_h;
+                                const ayudante_h = r?.ayudante_h;
+                                const medio_h = r?.medio_oficial_h ?? r?.medioOficial_h;
+                                const o = Number(r?.oficial_h) || 0;
+                                const a = Number(r?.ayudante_h) || 0;
+                                const iccPct = proyecto.iccPct ?? proyecto.icc ?? 0;
+                                const moUocra = (o * uocraRates.oficial_hora + a * uocraRates.ayudante_hora) * cant * (1 + iccPct / 100);
+                                const parts = [];
+                                if (typeof oficial_h === "number") parts.push(`Oficial: ${(oficial_h * cant).toFixed(2)}h`);
+                                if (typeof medio_h === "number") parts.push(`Medio oficial: ${(medio_h * cant).toFixed(2)}h`);
+                                if (typeof ayudante_h === "number") parts.push(`Ayudante: ${(ayudante_h * cant).toFixed(2)}h`);
+                                if (parts.length === 0 && o === 0 && a === 0) return null;
                                 return (
                                   <div style={{ marginTop: "4px", fontSize: "10px", color: COLORS.muted }}>
-                                    Por {item.um} · Cant: {cant} → Oficial: {(oficial_h * cant).toFixed(2)}h · Ayudante: {(ayudante_h * cant).toFixed(2)}h
+                                    {parts.length > 0 && (
+                                      <div>
+                                        Por {item.um} · Cant: {cant} → {parts.join(" · ")}
+                                      </div>
+                                    )}
+                                    {(o > 0 || a > 0) && (
+                                      <div style={{ marginTop: parts.length > 0 ? "4px" : 0, color: COLORS.text }}>
+                                        MO UOCRA: <strong style={{ color: COLORS.gold }}>{ars(moUocra)}</strong>{" "}
+                                        (Oficial {(o * cant).toFixed(2)}h × ${uocraRates.oficial_hora} + Ayudante {(a * cant).toFixed(2)}h × $
+                                        {uocraRates.ayudante_hora})
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })()}

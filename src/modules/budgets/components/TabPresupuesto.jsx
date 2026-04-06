@@ -232,7 +232,7 @@ const SubrubroHeader = ({ data }) => (
   </tr>
 );
 
-export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, removeItem, preciosActualizados, BASE }) {
+export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, updateProyecto, removeItem, preciosActualizados, BASE }) {
   const [search, setSearch] = useState("");
   const [showSelector, setShowSelector] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
@@ -522,19 +522,41 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   }
 
   function aplicarRendimientosSeleccionados() {
-    if (!sugRendRows) return;
+    if (!sugRendRows || !updateProyecto) return;
+    const rendByCodigo = new Map();
     for (const r of sugRendRows) {
       const cod = String(r.codigo ?? "").trim();
       if (!cod || !sugRendSelected.has(cod)) continue;
-      updateItem(cod, {
-        rendimientos: {
-          oficial_h: Number(r.oficial_h) || 0,
-          ayudante_h: Number(r.ayudante_h) || 0,
-          tipo: String(r.tipo || "sugerido_ia"),
-          fuente: String(r.fuente || ""),
-        },
+      rendByCodigo.set(cod, {
+        oficial_h: Number(r.oficial_h) || 0,
+        ayudante_h: Number(r.ayudante_h) || 0,
+        tipo: String(r.tipo || "sugerido_ia"),
+        fuente: String(r.fuente || ""),
       });
     }
+    if (rendByCodigo.size === 0) return;
+
+    console.log("[Sugerir Rendimientos] Aplicar antes de guardar", {
+      proyectoId: proyecto.id,
+      codigos: [...rendByCodigo.keys()],
+      itemsEnProyecto: (proyecto.items || []).length,
+    });
+
+    const newItems = (proyecto.items || []).map((i) => {
+      const k = String(i.codigo ?? "").trim();
+      const rend = rendByCodigo.get(k);
+      if (!rend) return i;
+      return { ...i, rendimientos: rend };
+    });
+
+    updateProyecto(proyecto.id, { items: newItems });
+
+    console.log("[Sugerir Rendimientos] Aplicar después de guardar (updateProyecto → persistencia vía choix_proyectos)", {
+      proyectoId: proyecto.id,
+      codigosAplicados: [...rendByCodigo.keys()],
+      totalItems: newItems.length,
+    });
+
     setSugRendRows(null);
     setSugRendSelected(new Set());
     setSugRendError(null);

@@ -179,7 +179,10 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
     updateProyecto(proyecto.id, { items: [...updatedItems, ...brandNewItems] });
   }
   function updateItem(codigo, patch) {
-    updateProyecto(proyecto.id, { items: proyecto.items.map((i) => (i.codigo === codigo ? { ...i, ...patch } : i)) });
+    const key = String(codigo ?? "").trim();
+    updateProyecto(proyecto.id, {
+      items: proyecto.items.map((i) => (String(i.codigo ?? "").trim() === key ? { ...i, ...patch } : i)),
+    });
   }
   function removeItem(codigo) {
     updateProyecto(proyecto.id, { items: proyecto.items.filter((i) => i.codigo !== codigo) });
@@ -216,7 +219,18 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
         ))}
       </div>
 
-      {tab === "presupuesto" && <TabPresupuesto proyecto={proyecto} iccFactor={iccFactor} addItems={addItems} updateItem={updateItem} removeItem={removeItem} preciosActualizados={preciosActualizados} BASE={BASE} />}
+      {tab === "presupuesto" && (
+        <TabPresupuesto
+          proyecto={proyecto}
+          iccFactor={iccFactor}
+          addItems={addItems}
+          updateItem={updateItem}
+          updateProyecto={updateProyecto}
+          removeItem={removeItem}
+          preciosActualizados={preciosActualizados}
+          BASE={BASE}
+        />
+      )}
       {tab === "semaforo" && <TabSemaforo proyecto={proyecto} iccFactor={iccFactor} updateItem={updateItem} preciosActualizados={preciosActualizados} />}
       {tab === "ia" && <TabIA proyecto={proyecto} addItems={addItems} BASE={BASE} preciosAprendidos={preciosAprendidos} setPreciosAprendidos={setPreciosAprendidos} detectarFormatoCómputo={detectarFormatoCómputo} parseComputeInteligente={parseComputeInteligente} />}
       {tab === "config" && <TabConfig proyecto={proyecto} updateProyecto={updateProyecto} />}

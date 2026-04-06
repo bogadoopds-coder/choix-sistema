@@ -46,19 +46,7 @@ export default function DashboardModule() {
     (async () => {
       try {
         const r = await storage.get("choix_proyectos");
-        if (r?.value) {
-          setProyectos(JSON.parse(r.value));
-          console.log(
-            "Primeros 5 items:",
-            JSON.parse(r.value).slice
-              ? JSON.parse(r.value)[0]?.items?.slice(0, 5).map((i) => ({
-                  codigo: i.codigo,
-                  rubroId: i.rubroId,
-                  desc: i.desc,
-                }))
-              : "no data"
-          );
-        }
+        if (r?.value) setProyectos(JSON.parse(r.value));
       } catch {}
       try {
         let pr = await storage.get("choix_precios_actualizados");

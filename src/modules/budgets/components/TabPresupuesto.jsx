@@ -47,6 +47,19 @@ function chunkItems(arr, size) {
   return out;
 }
 
+const SUGERIR_RENDIMIENTOS_SYSTEM =
+  "Sos un experto en construcción argentina. Para cada ítem recibido, estimá los rendimientos de mano de obra por unidad (horas de oficial y ayudante por m2/m3/ml/u). Basate en el libro de Chandías y estándares UOCRA. Devolvé SOLO JSON válido con este formato: { rendimientos: [ { codigo, desc, oficial_h, ayudante_h, tipo, fuente } ] }. Sin texto adicional, sin markdown.";
+
+function parseJsonObjectFromAnthropicText(text) {
+  const m = String(text || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[0]);
+  } catch {
+    return null;
+  }
+}
+
 function SelectorBase({ BASE, onAdd, existentes }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(new Set());
@@ -186,6 +199,10 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   const [uocraRates, setUocraRates] = useState(() => ({ ...UOCRA_RATES_DEFAULT }));
   const [showUocraModal, setShowUocraModal] = useState(false);
   const [uocraForm, setUocraForm] = useState(() => ({ ...UOCRA_RATES_DEFAULT }));
+  const [sugRendLoading, setSugRendLoading] = useState(false);
+  const [sugRendError, setSugRendError] = useState(null);
+  const [sugRendRows, setSugRendRows] = useState(null);
+  const [sugRendSelected, setSugRendSelected] = useState(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +229,14 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   }, [proyecto.items, uocraRates, iccPct]);
 
   const totalMaterialesEstimado = total - totalMoUocraPresupuesto;
+
+  const itemsSinRendimientos = useMemo(
+    () =>
+      (proyecto.items || []).filter(
+        (it) => it.rendimientos === null || it.rendimientos === undefined
+      ),
+    [proyecto.items]
+  );
 
   function exportarExcel() {
     const fecha = new Date().toLocaleDateString("es-AR");
@@ -369,6 +394,124 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
     }
   }
 
+  async function sugerirRendimientos() {
+    setSugRendError(null);
+    setSugRendRows(null);
+    setSugRendSelected(new Set());
+    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      setSugRendError("Falta VITE_ANTHROPIC_API_KEY (definila en el entorno del build y en Netlify).");
+      return;
+    }
+    const toProcess = itemsSinRendimientos.map((i) => ({
+      codigo: i.codigo,
+      desc: i.desc ?? i.descripcion ?? "",
+      um: i.um ?? "UN",
+    }));
+    if (toProcess.length === 0) {
+      setSugRendError("No hay ítems sin rendimientos (solo se considera sin datos cuando rendimientos es null o undefined).");
+      return;
+    }
+    setSugRendLoading(true);
+    try {
+      const chunks = chunkItems(toProcess, ITEMS_IA_CHUNK);
+      const acc = [];
+      for (const part of chunks) {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4000,
+            system: SUGERIR_RENDIMIENTOS_SYSTEM,
+            messages: [{ role: "user", content: JSON.stringify(part) }],
+          }),
+        });
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(raw);
+        } catch (_) {
+          data = {};
+        }
+        if (!res.ok) {
+          const detail = typeof data.error?.message === "string" ? data.error.message : raw.slice(0, 400);
+          setSugRendError(`Anthropic ${res.status}: ${detail}`);
+          return;
+        }
+        const text = data.content?.[0]?.text ?? "";
+        const parsed = parseJsonObjectFromAnthropicText(text);
+        const arr = parsed?.rendimientos;
+        if (!Array.isArray(arr)) {
+          setSugRendError("La respuesta no traía JSON válido con rendimientos[].");
+          return;
+        }
+        for (const r of arr) {
+          if (r && r.codigo != null && String(r.codigo).trim() !== "") acc.push(r);
+        }
+      }
+      const byCodigo = new Map();
+      for (const r of acc) {
+        const c = String(r.codigo ?? "").trim();
+        if (c) byCodigo.set(c, r);
+      }
+      const merged = [...byCodigo.values()];
+      if (merged.length === 0) {
+        setSugRendError("No se obtuvieron rendimientos en la respuesta.");
+        return;
+      }
+      setSugRendRows(merged);
+      setSugRendSelected(new Set(merged.map((r) => String(r.codigo ?? "").trim()).filter(Boolean)));
+    } catch (e) {
+      setSugRendError(e?.message || "Error al sugerir rendimientos");
+    } finally {
+      setSugRendLoading(false);
+    }
+  }
+
+  function aplicarRendimientosSeleccionados() {
+    if (!sugRendRows) return;
+    for (const r of sugRendRows) {
+      const cod = String(r.codigo ?? "").trim();
+      if (!cod || !sugRendSelected.has(cod)) continue;
+      updateItem(cod, {
+        rendimientos: {
+          oficial_h: Number(r.oficial_h) || 0,
+          ayudante_h: Number(r.ayudante_h) || 0,
+          tipo: String(r.tipo || "sugerido_ia"),
+          fuente: String(r.fuente || ""),
+        },
+      });
+    }
+    setSugRendRows(null);
+    setSugRendSelected(new Set());
+    setSugRendError(null);
+  }
+
+  function toggleSugRendCodigo(codigo) {
+    setSugRendSelected((prev) => {
+      const next = new Set(prev);
+      const c = String(codigo);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  }
+
+  function seleccionarTodosSugRend(todos) {
+    if (!sugRendRows) return;
+    if (todos) {
+      setSugRendSelected(new Set(sugRendRows.map((r) => String(r.codigo ?? "").trim()).filter(Boolean)));
+    } else {
+      setSugRendSelected(new Set());
+    }
+  }
+
   return (
     <div style={{ ...S.panel }}>
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
@@ -394,6 +537,19 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
         <button style={S.btn("", true)} type="button" onClick={analizarConIA} disabled={proyecto.items.length === 0 || aiLoading}>
           {aiLoading ? "Analizando..." : "🤖 Analizar con IA"}
         </button>
+        <button
+          type="button"
+          style={S.btn("", true)}
+          onClick={sugerirRendimientos}
+          disabled={proyecto.items.length === 0 || itemsSinRendimientos.length === 0 || sugRendLoading}
+          title={
+            itemsSinRendimientos.length === 0
+              ? "Todos los ítems ya tienen rendimientos"
+              : `${itemsSinRendimientos.length} ítem(s) sin rendimientos`
+          }
+        >
+          {sugRendLoading ? "Sugiriendo…" : "👷 Sugerir Rendimientos"}
+        </button>
       </div>
       <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "12px", lineHeight: 1.45 }}>
         <span>
@@ -408,6 +564,99 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
           </span>
         )}
       </div>
+
+      {(sugRendError || sugRendRows) && (
+        <div
+          style={{
+            background: COLORS.subtle,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: "8px",
+            padding: "12px",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ fontWeight: 700, color: COLORS.gold, fontSize: "13px", marginBottom: "8px" }}>Revisión — rendimientos sugeridos</div>
+          {sugRendError && (
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: sugRendRows ? "10px" : 0 }}>
+              <div style={{ color: COLORS.rojo, fontSize: "12px", flex: 1 }}>{sugRendError}</div>
+              {!sugRendRows && (
+                <button type="button" style={S.btn("", true)} onClick={() => setSugRendError(null)}>
+                  Cerrar
+                </button>
+              )}
+            </div>
+          )}
+          {sugRendRows && sugRendRows.length > 0 && (
+            <>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "8px", flexWrap: "wrap" }}>
+                <label style={{ fontSize: "11px", color: COLORS.text, display: "flex", alignItems: "center", gap: "6px" }}>
+                  <input
+                    type="checkbox"
+                    checked={sugRendSelected.size === sugRendRows.length && sugRendRows.length > 0}
+                    onChange={(e) => seleccionarTodosSugRend(e.target.checked)}
+                    style={{ accentColor: COLORS.gold }}
+                  />
+                  Seleccionar todos
+                </label>
+                <button type="button" style={S.btn("gold", true)} onClick={aplicarRendimientosSeleccionados} disabled={sugRendSelected.size === 0}>
+                  Aplicar seleccionados
+                </button>
+                <button
+                  type="button"
+                  style={S.btn("", true)}
+                  onClick={() => {
+                    setSugRendRows(null);
+                    setSugRendSelected(new Set());
+                    setSugRendError(null);
+                  }}
+                >
+                  Cerrar
+                </button>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${COLORS.border}`, color: COLORS.muted, textAlign: "left" }}>
+                      <th style={{ padding: "6px", width: "36px" }} />
+                      <th style={{ padding: "6px" }}>Código</th>
+                      <th style={{ padding: "6px", minWidth: "160px" }}>Descripción</th>
+                      <th style={{ padding: "6px" }}>UM</th>
+                      <th style={{ padding: "6px", textAlign: "right" }}>Oficial h/u</th>
+                      <th style={{ padding: "6px", textAlign: "right" }}>Ayudante h/u</th>
+                      <th style={{ padding: "6px" }}>Fuente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sugRendRows.map((r) => {
+                      const cod = String(r.codigo ?? "").trim();
+                      const um =
+                        proyecto.items.find((it) => it.codigo === cod)?.um ?? r.um ?? "—";
+                      return (
+                        <tr key={cod} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                          <td style={{ padding: "6px" }}>
+                            <input
+                              type="checkbox"
+                              checked={sugRendSelected.has(cod)}
+                              onChange={() => toggleSugRendCodigo(cod)}
+                              style={{ accentColor: COLORS.gold }}
+                            />
+                          </td>
+                          <td style={{ padding: "6px", color: COLORS.muted, whiteSpace: "nowrap" }}>{cod}</td>
+                          <td style={{ padding: "6px", color: COLORS.text }}>{r.desc ?? "—"}</td>
+                          <td style={{ padding: "6px", color: COLORS.muted }}>{um}</td>
+                          <td style={{ padding: "6px", textAlign: "right" }}>{typeof r.oficial_h === "number" ? r.oficial_h.toFixed(2) : Number(r.oficial_h) || "—"}</td>
+                          <td style={{ padding: "6px", textAlign: "right" }}>{typeof r.ayudante_h === "number" ? r.ayudante_h.toFixed(2) : Number(r.ayudante_h) || "—"}</td>
+                          <td style={{ padding: "6px", color: COLORS.muted, fontSize: "10px" }}>{r.fuente ?? "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {showSelector && <SelectorBase BASE={BASE} onAdd={(items) => { addItems(items); setShowSelector(false); }} existentes={proyecto.items.map((i) => i.codigo)} />}
 

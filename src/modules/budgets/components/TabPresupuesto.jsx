@@ -47,8 +47,55 @@ function chunkItems(arr, size) {
   return out;
 }
 
-const SUGERIR_RENDIMIENTOS_SYSTEM =
-  "Sos un experto en construcción argentina. Para cada ítem recibido, estimá los rendimientos de mano de obra por unidad (horas de oficial y ayudante por m2/m3/ml/u). Basate en el libro de Chandías y estándares UOCRA. Devolvé SOLO JSON válido con este formato: { rendimientos: [ { codigo, desc, oficial_h, ayudante_h, tipo, fuente } ] }. Sin texto adicional, sin markdown.";
+const SUGERIR_RENDIMIENTOS_SYSTEM = `Sos un experto en construcción argentina con dominio del libro de Chandías y convenio UOCRA. Tu tarea es estimar rendimientos de mano de obra SEPARADOS del precio del material/equipo.
+
+IMPORTANTE: El precio unitario de cada ítem es SOLO el costo del material o equipo. La mano de obra es ADICIONAL y debe estimarse por separado en horas de oficial y ayudante por unidad.
+
+Estimá rendimientos para TODOS los rubros sin excepción:
+
+PINTURAS (por m2):
+- Látex muros interior/exterior: oficial 0.05h, ayudante 0.03h
+- Esmalte carpintería madera: oficial 0.08h, ayudante 0.04h  
+- Esmalte metálica/antióxido: oficial 0.06h, ayudante 0.03h
+- Frisos: oficial 0.06h, ayudante 0.03h
+
+INSTALACIÓN ELÉCTRICA (por unidad):
+- Tableros: oficial 4h, ayudante 2h por tablero
+- Bocas iluminación/tomas: oficial 1.5h, ayudante 0.8h por boca
+- Conductores subterráneos: oficial 0.3h, ayudante 0.3h por ml
+- Artefactos LED: oficial 0.5h, ayudante 0.3h por unidad
+
+INSTALACIÓN SANITARIA (por unidad):
+- Cañerías cloacales: oficial 0.4h, ayudante 0.3h por ml
+- Artefactos (inodoros, bachas): oficial 2h, ayudante 1h por u
+- Grifería: oficial 1h, ayudante 0.5h por u
+
+INSTALACIÓN CONTRA INCENDIO:
+- Bocas incendio: oficial 3h, ayudante 2h por u
+- Extintores: oficial 0.5h, ayudante 0.3h por u
+- Cañería incendio: oficial 0.5h, ayudante 0.3h por ml
+
+AIRE ACONDICIONADO / ELECTROMECÁNICA:
+- Split hasta 3000 frig: oficial 4h, ayudante 2h por u
+- Split 3000-5000 frig: oficial 6h, ayudante 3h por u
+- Bombas/equipos especiales: oficial 8h, ayudante 4h por u
+
+CRISTALES Y VIDRIOS:
+- Cristal laminado colocado: oficial 0.3h, ayudante 0.2h por m2
+- Espejos: oficial 0.25h, ayudante 0.15h por m2
+
+LIMPIEZA DE OBRA:
+- Limpieza general: oficial 0.02h, ayudante 0.05h por m2
+
+VARIOS / SERENO:
+- Sereno: oficial 160h, ayudante 0h por mes (jornada mensual)
+- Barandas/pasamanos: oficial 1.5h, ayudante 1h por ml o m2
+
+Para los rubros que ya conocés (hormigón, mampostería, revoques, pisos, cubiertas, carpinterías) usá los valores de Chandías.
+
+Devolvé SOLO JSON válido:
+{ rendimientos: [ { codigo, desc, oficial_h, ayudante_h, tipo, fuente } ] }
+Sin texto adicional, sin markdown.`;
 
 function parseJsonObjectFromAnthropicText(text) {
   const m = String(text || "").match(/\{[\s\S]*\}/);

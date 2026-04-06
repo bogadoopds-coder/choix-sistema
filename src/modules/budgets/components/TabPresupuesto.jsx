@@ -5,8 +5,19 @@ import { uid } from "../../../utils/id";
 import { precioVigente, semaforo } from "../../../utils/budgets";
 import { COLORS, S } from "../../../styles/theme";
 import { flattenWithHeaders, formatPrecioARS } from "../utils/parseUtils";
-import { laborCostFromRendimientosUocra, UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
-import { getUocraRates } from "../../../services/storage";
+import { UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
+import { getUocraRates, setUocraRates as persistUocraRates } from "../../../services/storage";
+
+/** MO UOCRA por ítem (solo oficial + ayudante, con ICC), mismo criterio que el resumen. */
+function moUocraItemOficialAyudanteIcc(item, rates, iccPct) {
+  const r = item.rendimientos;
+  if (!r) return null;
+  const o = Number(r.oficial_h) || 0;
+  const a = Number(r.ayudante_h) || 0;
+  if (o === 0 && a === 0) return null;
+  const cant = Number(item.cantPresup) || 0;
+  return (o * rates.oficial_hora + a * rates.ayudante_hora) * cant * (1 + iccPct / 100);
+}
 
 function SelectorBase({ BASE, onAdd, existentes }) {
   const [q, setQ] = useState("");
@@ -88,7 +99,7 @@ function SelectorBase({ BASE, onAdd, existentes }) {
 const RubroHeader = ({ data }) => (
   <tr style={{ backgroundColor: "#1e3a5f", color: "#ffffff" }}>
     <td
-      colSpan={9}
+      colSpan={10}
       style={{
         padding: "10px 14px",
         fontWeight: "700",
@@ -117,7 +128,7 @@ const RubroHeader = ({ data }) => (
 const SubrubroHeader = ({ data }) => (
   <tr style={{ backgroundColor: "#e8edf5", borderLeft: "3px solid #1e3a5f" }}>
     <td
-      colSpan={10}
+      colSpan={11}
       style={{
         padding: "7px 14px 7px 28px",
         fontWeight: "600",
@@ -145,6 +156,8 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [uocraRates, setUocraRates] = useState(() => ({ ...UOCRA_RATES_DEFAULT }));
+  const [showUocraModal, setShowUocraModal] = useState(false);
+  const [uocraForm, setUocraForm] = useState(() => ({ ...UOCRA_RATES_DEFAULT }));
 
   useEffect(() => {
     let cancelled = false;
@@ -157,18 +170,20 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
     };
   }, []);
 
+  const iccPct = proyecto.iccPct ?? proyecto.icc ?? 0;
+
   const total = proyecto.items.reduce((s, i) => s + i.cantPresup * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0);
 
   const totalMoUocraPresupuesto = useMemo(() => {
     let s = 0;
     for (const it of proyecto.items || []) {
-      const r = it.rendimientos;
-      if (!r) continue;
-      const v = laborCostFromRendimientosUocra(r, Number(it.cantPresup) || 0, uocraRates);
+      const v = moUocraItemOficialAyudanteIcc(it, uocraRates, iccPct);
       if (v != null) s += v;
     }
     return s;
-  }, [proyecto.items, uocraRates]);
+  }, [proyecto.items, uocraRates, iccPct]);
+
+  const totalMaterialesEstimado = total - totalMoUocraPresupuesto;
 
   function exportarExcel() {
     const fecha = new Date().toLocaleDateString("es-AR");
@@ -269,6 +284,23 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
     }
   }
 
+  async function guardarUocraModal() {
+    try {
+      const merged = await persistUocraRates({
+        vigencia: String(uocraForm.vigencia ?? "").trim() || UOCRA_RATES_DEFAULT.vigencia,
+        zona: String(uocraForm.zona ?? "").trim() || UOCRA_RATES_DEFAULT.zona,
+        oficial_hora: Number(uocraForm.oficial_hora) || 0,
+        medioOficial_hora: Number(uocraForm.medioOficial_hora) || 0,
+        ayudante_hora: Number(uocraForm.ayudante_hora) || 0,
+        fuenteUrl: uocraRates.fuenteUrl || UOCRA_RATES_DEFAULT.fuenteUrl,
+      });
+      setUocraRates(merged);
+      setShowUocraModal(false);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   return (
     <div style={{ ...S.panel }}>
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
@@ -278,6 +310,16 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
         </button>
         <button style={S.btn("blue", true)} onClick={() => setShowCustom(!showCustom)}>
           + ÍTEM CUSTOM
+        </button>
+        <button
+          type="button"
+          style={S.btn("", true)}
+          onClick={() => {
+            setUocraForm({ ...uocraRates });
+            setShowUocraModal(true);
+          }}
+        >
+          ⚙️ TASAS UOCRA
         </button>
         <span style={{ marginLeft: "auto", fontWeight: 700, color: COLORS.gold, fontSize: "14px" }}>{ars(total)}</span>
         <button style={S.btn()} onClick={exportarExcel} disabled={proyecto.items.length === 0}>📥 EXPORTAR EXCEL</button>
@@ -336,7 +378,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "Consumido", "Semáf.", ""].map((h) => (
+                {["Código", "Descripción", "UM", "Cant. Presup.", "P. Base", "P. Custom", "P. Final+ICC", "MO", "Consumido", "Semáf.", ""].map((h) => (
                   <th key={h} style={{ ...S.th, ...(h === "Descripción" ? { minWidth: "200px", width: "200px" } : {}) }}>{h}</th>
                 ))}
               </tr>
@@ -356,6 +398,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                 const tieneActualizacion = codigoBase && preciosActualizados?.[codigoBase]?.length > 0;
                 const isExpanded = expandedItem === item.codigo;
                 const mi = item.matchInfo;
+                const moItem = moUocraItemOficialAyudanteIcc(item, uocraRates, iccPct);
 
                 return (
                   <Fragment key={item.codigo || idx}>
@@ -390,6 +433,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                       />
                     </td>
                     <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: COLORS.gold, whiteSpace: "nowrap" }}>{ars(subtotal)}</td>
+                    <td style={{ ...S.td, textAlign: "right", fontSize: "11px", color: moItem != null ? COLORS.text : COLORS.muted, whiteSpace: "nowrap" }}>
+                      {moItem != null ? ars(moItem) : "—"}
+                    </td>
                     <td style={S.td}>
                       <input type="number" placeholder="0" style={{ ...S.input, width: "80px", textAlign: "right" }} value={item.consumidoReal ?? ""} onChange={(e) => updateItem(item.codigo, { consumidoReal: parseFloat(e.target.value) || 0 })} />
                     </td>
@@ -402,7 +448,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={10} style={{ ...S.td, padding: "8px 12px", verticalAlign: "top", borderBottom: "1px solid #1e2a22" }}>
+                      <td colSpan={11} style={{ ...S.td, padding: "8px 12px", verticalAlign: "top", borderBottom: "1px solid #1e2a22" }}>
                         <div
                           style={{
                             background: COLORS.subtle,
@@ -452,7 +498,8 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                                 const o = Number(r?.oficial_h) || 0;
                                 const a = Number(r?.ayudante_h) || 0;
                                 const iccPct = proyecto.iccPct ?? proyecto.icc ?? 0;
-                                const moUocra = (o * uocraRates.oficial_hora + a * uocraRates.ayudante_hora) * cant * (1 + iccPct / 100);
+                                const baseMoSinIcc = (o * uocraRates.oficial_hora + a * uocraRates.ayudante_hora) * cant;
+                                const moUocra = baseMoSinIcc * (1 + iccPct / 100);
                                 const parts = [];
                                 if (typeof oficial_h === "number") parts.push(`Oficial: ${(oficial_h * cant).toFixed(2)}h`);
                                 if (typeof medio_h === "number") parts.push(`Medio oficial: ${(medio_h * cant).toFixed(2)}h`);
@@ -467,9 +514,13 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
                                     )}
                                     {(o > 0 || a > 0) && (
                                       <div style={{ marginTop: parts.length > 0 ? "4px" : 0, color: COLORS.text }}>
-                                        MO UOCRA: <strong style={{ color: COLORS.gold }}>{ars(moUocra)}</strong>{" "}
-                                        (Oficial {(o * cant).toFixed(2)}h × ${uocraRates.oficial_hora} + Ayudante {(a * cant).toFixed(2)}h × $
-                                        {uocraRates.ayudante_hora})
+                                        MO UOCRA: <strong style={{ color: COLORS.gold }}>{ars(moUocra)}</strong>
+                                        <span style={{ color: COLORS.muted }}>
+                                          {" "}
+                                          (Oficial {(o * cant).toFixed(2)}h × ${uocraRates.oficial_hora} + Ayudante {(a * cant).toFixed(2)}h × $
+                                          {uocraRates.ayudante_hora} = {ars(baseMoSinIcc)} sin ICC
+                                          {iccPct !== 0 ? ` · ICC ${iccPct}% incl.` : ""})
+                                        </span>
                                       </div>
                                     )}
                                   </div>
@@ -519,9 +570,22 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
               })}
             </tbody>
             <tfoot>
+              <tr>
+                <td colSpan={11} style={{ ...S.td, padding: "12px 8px", background: COLORS.subtle, borderTop: `1px solid ${COLORS.border}`, fontSize: "12px", color: COLORS.text, lineHeight: 1.6 }}>
+                  <div>💰 Materiales: <strong>{ars(totalMaterialesEstimado)}</strong></div>
+                  <div>
+                    👷 Mano de Obra UOCRA: <strong style={{ color: COLORS.gold }}>{ars(totalMoUocraPresupuesto)}</strong>
+                    <span style={{ color: COLORS.muted, fontSize: "10px", marginLeft: "6px" }}>(solo ítems con rendimientos)</span>
+                  </div>
+                  <div>
+                    📊 Total con MO: <strong style={{ color: COLORS.gold, fontSize: "14px" }}>{ars(total)}</strong>
+                  </div>
+                </td>
+              </tr>
               <tr style={{ borderTop: `2px solid ${COLORS.border}` }}>
                 <td colSpan={6} style={{ ...S.td, fontWeight: 700, color: COLORS.muted, fontSize: "11px", textAlign: "right", paddingTop: "12px" }}>TOTAL PRESUPUESTO</td>
                 <td style={{ ...S.td, fontWeight: 800, color: COLORS.gold, fontSize: "15px", paddingTop: "12px", whiteSpace: "nowrap" }}>{ars(proyecto.items.reduce((s, i) => s + (i.cantPresup ?? 0) * (i.precioCustom ?? precioVigente(i.baseCodigo ?? i.codigo, i.precioBase, preciosActualizados)) * iccFactor, 0))}</td>
+                <td style={{ ...S.td, fontWeight: 700, color: COLORS.text, fontSize: "12px", paddingTop: "12px", textAlign: "right", whiteSpace: "nowrap" }}>{ars(totalMoUocraPresupuesto)}</td>
                 <td style={S.td} />
                 <td colSpan={2} style={S.td} />
               </tr>
@@ -558,6 +622,96 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
           </div>
         )}
         </>
+      )}
+
+      {showUocraModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="uocra-modal-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+          onClick={() => setShowUocraModal(false)}
+        >
+          <div
+            style={{
+              background: "#141a16",
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: "10px",
+              padding: "20px",
+              maxWidth: "420px",
+              width: "100%",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="uocra-modal-title" style={{ fontWeight: 800, fontSize: "16px", color: COLORS.gold, marginBottom: "16px" }}>
+              Tasas UOCRA - Mano de Obra
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div>
+                <label style={S.label}>Vigencia (ej: 2026-02)</label>
+                <input style={S.input} value={uocraForm.vigencia ?? ""} onChange={(e) => setUocraForm((f) => ({ ...f, vigencia: e.target.value }))} />
+              </div>
+              <div>
+                <label style={S.label}>Zona (ej: A)</label>
+                <input style={S.input} value={uocraForm.zona ?? ""} onChange={(e) => setUocraForm((f) => ({ ...f, zona: e.target.value }))} />
+              </div>
+              <div>
+                <label style={S.label}>Oficial $/hora</label>
+                <input
+                  style={S.input}
+                  type="number"
+                  min={0}
+                  value={uocraForm.oficial_hora ?? ""}
+                  onChange={(e) => setUocraForm((f) => ({ ...f, oficial_hora: e.target.value === "" ? "" : Number(e.target.value) }))}
+                />
+              </div>
+              <div>
+                <label style={S.label}>Medio Oficial $/hora</label>
+                <input
+                  style={S.input}
+                  type="number"
+                  min={0}
+                  value={uocraForm.medioOficial_hora ?? ""}
+                  onChange={(e) => setUocraForm((f) => ({ ...f, medioOficial_hora: e.target.value === "" ? "" : Number(e.target.value) }))}
+                />
+              </div>
+              <div>
+                <label style={S.label}>Ayudante $/hora</label>
+                <input
+                  style={S.input}
+                  type="number"
+                  min={0}
+                  value={uocraForm.ayudante_hora ?? ""}
+                  onChange={(e) => setUocraForm((f) => ({ ...f, ayudante_hora: e.target.value === "" ? "" : Number(e.target.value) }))}
+                />
+              </div>
+              <div style={{ fontSize: "11px", color: COLORS.muted }}>
+                Fuente:{" "}
+                <a href="https://www.uocra.org" target="_blank" rel="noopener noreferrer" style={{ color: COLORS.gold }}>
+                  uocra.org
+                </a>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "18px" }}>
+              <button type="button" style={S.btn("", true)} onClick={() => setShowUocraModal(false)}>
+                Cancelar
+              </button>
+              <button type="button" style={S.btn("gold", true)} onClick={guardarUocraModal}>
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

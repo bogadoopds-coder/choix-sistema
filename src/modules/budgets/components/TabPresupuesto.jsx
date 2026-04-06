@@ -19,6 +19,34 @@ function moUocraItemOficialAyudanteIcc(item, rates, iccPct) {
   return (o * rates.oficial_hora + a * rates.ayudante_hora) * cant * (1 + iccPct / 100);
 }
 
+const ITEMS_IA_CHUNK = 30;
+
+const ANALISIS_PRESUPUESTO_SYSTEM = `Sos un analista financiero y de control de obra especializado en construcción en Argentina (obras públicas y privadas, presupuestos en pesos, costos de materiales y mano de obra, plazos e incidencias).
+
+Recibirás datos de una obra: proyecto (identificación), lista de ítems presupuestarios con cantidades y consumos, y un porcentaje de ICC (índice de costos de construcción) aplicado al contexto del presupuesto.
+
+Tu tarea es redactar un análisis claro en español argentino que cubra obligatoriamente:
+
+1) Total presupuestado vs total consumido: compará el monto total presupuestado (suma de cantPresup × precioFinal por ítem, o el criterio que indiquen los datos) frente al valor económico asociado al consumo real acumulado (usá consumidoReal y precioFinal de forma coherente con los datos recibidos).
+
+2) Ítems en “semáforo rojo”: aquellos donde el consumo respecto de lo presupuestado en cantidad supere el 80% (es decir, consumidoReal / cantPresup > 0,8 cuando cantPresup > 0). Listá los más relevantes con código y descripción.
+
+3) Ítems en “semáforo amarillo”: consumido entre el 50% y el 80% del presupuestado en cantidad (0,5 < consumidoReal / cantPresup ≤ 0,8, con cantPresup > 0).
+
+4) Desvío porcentual general de la obra: estimá un indicador global de desvío entre lo ejecutado/consumido y lo planificado (explicá brevemente el criterio numérico que usaste).
+
+5) Tres recomendaciones concretas y priorizadas (qué hacer primero, segundo y tercero) para mejorar el control de costos o el replanteo de partidas.
+
+Sé preciso con números cuando los datos lo permitan. Si falta información para un cálculo, indicá la limitación sin inventar cifras. No uses markdown ni tablas complejas; texto corrido con párrafos o viñetas simples.
+
+Si el mensaje indica que es una "parte" de la lista de ítems, analizá solo los ítems de esa parte (no inventés totales de obras que no están en el JSON).`;
+
+function chunkItems(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 function SelectorBase({ BASE, onAdd, existentes }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(new Set());
@@ -238,6 +266,12 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
     setAiAnalysis(null);
     setAiLoading(true);
     try {
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        setAiError("Falta VITE_ANTHROPIC_API_KEY (definila en el entorno del build y en Netlify).");
+        return;
+      }
+
       const rows = flattenWithHeaders(itemsForHierarchy).filter((r) => r.type === "item");
       const itemsPayload = rows.map((item) => {
         const codigoBase = item.baseCodigo ?? item.codigo;
@@ -252,31 +286,65 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, remo
           precioFinal,
         };
       });
-      const res = await fetch("/.netlify/functions/agent-presupuesto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          proyecto: {
-            id: proyecto.id,
-            nombre: proyecto.nombre,
-            codigo: proyecto.codigo,
-            cliente: proyecto.cliente,
+
+      const proyectoCtx = {
+        id: proyecto.id,
+        nombre: proyecto.nombre,
+        codigo: proyecto.codigo,
+        cliente: proyecto.cliente,
+      };
+      const iccPct = proyecto.iccPct ?? proyecto.icc;
+
+      const itemChunks = chunkItems(itemsPayload, ITEMS_IA_CHUNK);
+      const partes = [];
+
+      for (let i = 0; i < itemChunks.length; i++) {
+        const chunk = itemChunks[i];
+        const payloadJson = JSON.stringify(
+          { proyecto: proyectoCtx, items: chunk, iccPct },
+          null,
+          2
+        );
+        const userContent =
+          itemChunks.length > 1
+            ? `Parte ${i + 1} de ${itemChunks.length} (solo estos ítems). Datos JSON:\n\n${payloadJson}\n\nRedactá el análisis según las instrucciones del sistema aplicando solo a los ítems listados.`
+            : `Datos para el análisis (JSON):\n\n${payloadJson}\n\nRedactá el análisis completo según las instrucciones del sistema.`;
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+            "content-type": "application/json",
           },
-          items: itemsPayload,
-          iccPct: proyecto.iccPct,
-        }),
-      });
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (_) {
-        data = {};
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4000,
+            system: ANALISIS_PRESUPUESTO_SYSTEM,
+            messages: [{ role: "user", content: userContent }],
+          }),
+        });
+
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(raw);
+        } catch (_) {
+          data = {};
+        }
+
+        if (!res.ok) {
+          const detail = typeof data.error?.message === "string" ? data.error.message : raw.slice(0, 400);
+          setAiError(`Anthropic ${res.status}: ${detail}`);
+          return;
+        }
+
+        const texto = data.content?.[0]?.text || "";
+        partes.push(texto);
       }
-      if (!res.ok) {
-        setAiError(typeof data.error === "string" ? data.error : `Error ${res.status}`);
-        return;
-      }
-      setAiAnalysis(typeof data.analysis === "string" ? data.analysis : "");
+
+      setAiAnalysis(partes.join("\n\n─────────────────\n\n"));
     } catch (e) {
       setAiError(e?.message || "Error al analizar");
     } finally {

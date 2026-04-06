@@ -6,7 +6,13 @@ import { precioVigente, semaforo } from "../../../utils/budgets";
 import { COLORS, S } from "../../../styles/theme";
 import { flattenWithHeaders, formatPrecioARS } from "../utils/parseUtils";
 import { UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
-import { getUocraRates, setUocraRates as persistUocraRates } from "../../../services/storage";
+import {
+  getUocraRates,
+  setUocraRates as persistUocraRates,
+  getRendimientosAprendidos,
+  upsertRendimientosAprendidos,
+  normalizeRendimientosDescKey,
+} from "../../../services/storage";
 
 /** MO UOCRA por ítem (solo oficial + ayudante, con ICC), mismo criterio que el resumen. */
 function moUocraItemOficialAyudanteIcc(item, rates, iccPct) {
@@ -445,22 +451,53 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     setSugRendError(null);
     setSugRendRows(null);
     setSugRendSelected(new Set());
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      setSugRendError("Falta VITE_ANTHROPIC_API_KEY (definila en el entorno del build y en Netlify).");
-      return;
-    }
-    const toProcess = itemsSinRendimientos.map((i) => ({
-      codigo: i.codigo,
-      desc: i.desc ?? i.descripcion ?? "",
-      um: i.um ?? "UN",
-    }));
-    if (toProcess.length === 0) {
+    if (itemsSinRendimientos.length === 0) {
       setSugRendError("No hay ítems sin rendimientos (solo se considera sin datos cuando rendimientos es null o undefined).");
       return;
     }
     setSugRendLoading(true);
     try {
+      const baseCentral = await getRendimientosAprendidos();
+      let workingItems = (proyecto.items || []).map((i) => ({ ...i }));
+      let aplicadosDesdeBase = 0;
+      for (let idx = 0; idx < workingItems.length; idx++) {
+        const it = workingItems[idx];
+        if (it.rendimientos !== null && it.rendimientos !== undefined) continue;
+        const desc = it.desc ?? it.descripcion ?? "";
+        const key = normalizeRendimientosDescKey(desc);
+        const entry = baseCentral[key];
+        if (entry?.rendimientos && typeof entry.rendimientos === "object") {
+          workingItems[idx] = { ...it, rendimientos: { ...entry.rendimientos } };
+          aplicadosDesdeBase += 1;
+        }
+      }
+      if (aplicadosDesdeBase > 0 && updateProyecto) {
+        updateProyecto(proyecto.id, { items: workingItems });
+        console.log(
+          `[Sugerir Rendimientos] Aplicados desde base centralizada: ${aplicadosDesdeBase} ítem(s) (clave por descripción)`
+        );
+      }
+
+      const stillNeeding = workingItems.filter(
+        (it) => it.rendimientos === null || it.rendimientos === undefined
+      );
+      if (stillNeeding.length === 0) {
+        console.log("[Sugerir Rendimientos] Todos los ítems resueltos desde base centralizada; no se llama a la IA.");
+        return;
+      }
+
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        setSugRendError("Falta VITE_ANTHROPIC_API_KEY (definila en el entorno del build y en Netlify).");
+        return;
+      }
+
+      const toProcess = stillNeeding.map((i) => ({
+        codigo: i.codigo,
+        desc: i.desc ?? i.descripcion ?? "",
+        um: i.um ?? "UN",
+      }));
+
       const chunks = chunkItems(toProcess, ITEMS_IA_CHUNK);
       const acc = [];
       for (const part of chunks) {
@@ -521,7 +558,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     }
   }
 
-  function aplicarRendimientosSeleccionados() {
+  async function aplicarRendimientosSeleccionados() {
     if (!sugRendRows || !updateProyecto) return;
     const rendByCodigo = new Map();
     for (const r of sugRendRows) {
@@ -556,6 +593,32 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
       codigosAplicados: [...rendByCodigo.keys()],
       totalItems: newItems.length,
     });
+
+    const nuevosParaBase = {};
+    for (const r of sugRendRows) {
+      const cod = String(r.codigo ?? "").trim();
+      if (!cod || !sugRendSelected.has(cod)) continue;
+      const desc = String(r.desc ?? "").trim();
+      const key = normalizeRendimientosDescKey(desc);
+      if (!key) continue;
+      nuevosParaBase[key] = {
+        codigo: cod,
+        rendimientos: {
+          oficial_h: Number(r.oficial_h) || 0,
+          ayudante_h: Number(r.ayudante_h) || 0,
+          tipo: String(r.tipo || "sugerido_ia"),
+          fuente: String(r.fuente || ""),
+        },
+      };
+    }
+    try {
+      if (Object.keys(nuevosParaBase).length > 0) {
+        await upsertRendimientosAprendidos(nuevosParaBase);
+        console.log(`Guardando en base centralizada: ${Object.keys(nuevosParaBase).length} rendimientos`);
+      }
+    } catch (e) {
+      console.error("Error guardando rendimientos aprendidos:", e);
+    }
 
     setSugRendRows(null);
     setSugRendSelected(new Set());

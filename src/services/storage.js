@@ -51,3 +51,48 @@ export async function setUocraRates(rates) {
   return merged;
 }
 
+const RENDIMIENTOS_APRENDIDOS_KEY = "choix_rendimientos_aprendidos";
+
+/** Clave: descripción normalizada (minúsculas, sin acentos, primeros 40 caracteres). */
+export function normalizeRendimientosDescKey(desc) {
+  const s = String(desc ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+  return s.slice(0, 40);
+}
+
+/**
+ * Base centralizada: { [claveDesc40]: { codigo: string, rendimientos: object } }
+ */
+export async function getRendimientosAprendidos() {
+  try {
+    const r = await storage.get(RENDIMIENTOS_APRENDIDOS_KEY);
+    if (!r?.value) return {};
+    const parsed = JSON.parse(r.value);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+export async function setRendimientosAprendidos(base) {
+  if (typeof base !== "object" || base === null) {
+    await storage.set(RENDIMIENTOS_APRENDIDOS_KEY, JSON.stringify({}));
+    return {};
+  }
+  await storage.set(RENDIMIENTOS_APRENDIDOS_KEY, JSON.stringify(base));
+  return base;
+}
+
+/** Mezcla entradas nuevas (misma forma que get) sobre la base actual y persiste. */
+export async function upsertRendimientosAprendidos(nuevos) {
+  const actual = await getRendimientosAprendidos();
+  const merged = { ...actual, ...(typeof nuevos === "object" && nuevos !== null ? nuevos : {}) };
+  await setRendimientosAprendidos(merged);
+  return merged;
+}
+

@@ -425,9 +425,16 @@ export default function DashboardModule() {
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "14px", marginBottom: "12px" }}>📊 RESUMEN GENERAL</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "#d8e4de" }}>
           <span>Total presupuestado: <strong style={{ color: GOLD }}>{ars(resumenEjecutivo.totalPresupuestado)}</strong></span>
-          <span>Total certificado: <strong style={{ color: TEAL }}>{ars(certificacionesResumen.totalCertificado)}</strong></span>
+          <span style={{ fontSize: "13px" }}>
+            Total certificado:{" "}
+            <strong style={{ color: TEAL, fontSize: "15px" }}>{ars(certificacionesResumen.totalCertificado)}</strong>
+          </span>
           <span>% Avance general: <strong style={{ color: TEAL }}>{certificacionesResumen.pctAvanceGeneral.toFixed(1)}%</strong></span>
-          <span>Total consumido: <strong>{ars(resumenEjecutivo.totalConsumido)}</strong></span>
+          {resumenEjecutivo.totalConsumido > 0 && (
+            <span style={{ fontSize: "11px", color: "#6a8075" }}>
+              Total consumido: <strong style={{ color: "#d8e4de" }}>{ars(resumenEjecutivo.totalConsumido)}</strong>
+            </span>
+          )}
           <span>Margen global: <strong style={{ color: margenColor }}>{ars(resumenEjecutivo.margen)} ({resumenEjecutivo.margenPct.toFixed(1)}%)</strong></span>
         </div>
         <div style={{ fontSize: "11px", color: "#4a6055", marginBottom: "6px" }}>
@@ -540,10 +547,12 @@ export default function DashboardModule() {
           <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin obras activas</div>
         ) : (
           saludPorObra.map(({ proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct }) => {
-            const barColor = pctAvance < 80 ? TEAL : pctAvance <= 95 ? AMARILLO : ROJO;
             const certObra = certificacionesResumen.porObra.find((x) => x.proyecto.id === p.id);
             const pctAvanceCert = certObra?.pctAvanceCertificado ?? 0;
-            const barColorCert = pctAvanceCert < 80 ? TEAL : pctAvanceCert <= 95 ? AMARILLO : ROJO;
+            const tieneCerts = certObra && certObra.cantidadCertificaciones > 0;
+            const primaryPct = tieneCerts ? pctAvanceCert : pctAvance;
+            const barColorPrimary = primaryPct < 80 ? TEAL : primaryPct <= 95 ? AMARILLO : ROJO;
+            const barColorConsumido = pctAvance < 80 ? TEAL : pctAvance <= 95 ? AMARILLO : ROJO;
             return (
               <div key={p.id} style={{ marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid #1e2a22" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "6px" }}>
@@ -552,24 +561,65 @@ export default function DashboardModule() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#4a6055", marginBottom: "4px" }}>
                   <span>Presupuesto: {ars(presupuestoTotal)}</span>
-                  <span>Consumido: {ars(totalConsumido)}</span>
+                  {totalConsumido > 0 ? <span>Consumido: {ars(totalConsumido)}</span> : <span />}
                 </div>
-                <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "4px" }}>% avance (consumido): {pctAvance.toFixed(1)}%</div>
-                <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
-                  <div style={{ width: `${Math.min(100, pctAvance)}%`, height: "100%", background: barColor, borderRadius: "4px", transition: "width 0.2s" }} />
-                </div>
-                {certObra && certObra.cantidadCertificaciones > 0 && (
+                {tieneCerts ? (
                   <>
-                    <div style={{ fontSize: "11px", color: TEAL, fontWeight: 700, marginBottom: "4px" }}>
-                      % avance certificado: {pctAvanceCert.toFixed(1)}% {certObra.ultimoCertificado && `| Certificaciones: ${certObra.cantidadCertificaciones} | Último: N° ${certObra.ultimoCertificado.numero} - ${certObra.ultimoCertificado.periodo}`}
+                    <div style={{ fontSize: "12px", color: GOLD, fontWeight: 700, marginBottom: "4px" }}>
+                      % avance certificado: {pctAvanceCert.toFixed(1)}%
+                      {certObra.ultimoCertificado &&
+                        ` | Certificaciones: ${certObra.cantidadCertificaciones} | Último: N° ${certObra.ultimoCertificado.numero} - ${certObra.ultimoCertificado.periodo}`}
                     </div>
-                    <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden", marginBottom: "6px" }}>
-                      <div style={{ width: `${Math.min(100, pctAvanceCert)}%`, height: "100%", background: barColorCert, borderRadius: "3px", transition: "width 0.2s" }} />
+                    <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
+                      <div
+                        style={{
+                          width: `${Math.min(100, pctAvanceCert)}%`,
+                          height: "100%",
+                          background: barColorPrimary,
+                          borderRadius: "4px",
+                          transition: "width 0.2s",
+                        }}
+                      />
+                    </div>
+                    {totalConsumido > 0 && (
+                      <>
+                        <div style={{ fontSize: "10px", color: "#4a6055", fontWeight: 600, marginBottom: "3px" }}>
+                          % avance (consumido): {pctAvance.toFixed(1)}%
+                        </div>
+                        <div style={{ height: "4px", background: "#1e2a22", borderRadius: "2px", overflow: "hidden", marginBottom: "6px" }}>
+                          <div
+                            style={{
+                              width: `${Math.min(100, pctAvance)}%`,
+                              height: "100%",
+                              background: barColorConsumido,
+                              borderRadius: "2px",
+                              transition: "width 0.2s",
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "4px" }}>% avance (consumido): {pctAvance.toFixed(1)}%</div>
+                    <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
+                      <div
+                        style={{
+                          width: `${Math.min(100, pctAvance)}%`,
+                          height: "100%",
+                          background: barColorPrimary,
+                          borderRadius: "4px",
+                          transition: "width 0.2s",
+                        }}
+                      />
                     </div>
                   </>
                 )}
                 <div style={{ fontSize: "11px", color: desvio > 0 ? ROJO : "#4a6055" }}>
-                  Desvío: {desvio >= 0 ? "+" : ""}{ars(desvio)} ({desvio >= 0 ? "+" : ""}{desvioPct.toFixed(1)}%)
+                  Desvío: {desvio >= 0 ? "+" : ""}
+                  {ars(desvio)} ({desvio >= 0 ? "+" : ""}
+                  {desvioPct.toFixed(1)}%)
                 </div>
               </div>
             );

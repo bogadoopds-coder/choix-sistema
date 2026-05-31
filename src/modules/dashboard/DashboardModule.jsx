@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { storage } from "../../services/storage";
 import { precioVigente } from "../../utils/budgets";
 import { RUBROS_MAP } from "../budgets/utils/parseUtils";
+import { COLORS, FONTS } from "../../styles/theme";
 
 const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 
@@ -276,11 +277,11 @@ export default function DashboardModule() {
     };
   }, [obras, totalPresupuestado]);
 
-  const TEAL = "#1A9B7B";
-  const GOLD = "#c8a84b";
-  const ROJO = "#e05a5a";
-  const AMARILLO = "#d4a84b";
-  const card = { background: "#141a16", border: "1px solid #1e2a22", borderRadius: "10px", padding: "16px", marginBottom: "12px" };
+  const TEAL = COLORS.teal;
+  const GOLD = COLORS.amarillo;
+  const ROJO = COLORS.rojo;
+  const AMARILLO = COLORS.amarillo;
+  const card = { background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: "10px", padding: "16px", marginBottom: "12px" };
 
   const margenColor = resumenEjecutivo.margenPct > 10 ? TEAL : resumenEjecutivo.margenPct >= 5 ? AMARILLO : ROJO;
 
@@ -354,9 +355,9 @@ export default function DashboardModule() {
   }
 
   return (
-    <div style={{ padding: "20px", overflowY: "auto", height: "100%", background: "#0f1210" }}>
+    <div style={{ padding: "20px", overflowY: "auto", height: "100%", background: "#080c0a" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "16px" }}>
-        <div style={{ fontWeight: 800, fontSize: "18px", color: "#d8e4de" }}>📊 Dashboard General</div>
+        <div style={{ fontWeight: 800, fontSize: "18px", color: COLORS.text, fontFamily: FONTS.heading }}>📊 Dashboard General</div>
         <button
           type="button"
           onClick={analizarSupervisor}
@@ -378,7 +379,7 @@ export default function DashboardModule() {
       </div>
 
       {(supervisorAnalysis !== null || supervisorError !== null) && (
-        <div style={{ ...card, background: "#0f1210", border: "1px solid #1e2a22", position: "relative", padding: "14px 40px 14px 14px", marginBottom: "16px" }}>
+        <div style={{ ...card, background: "#080c0a", border: "1px solid rgba(240,237,230,0.08)", position: "relative", padding: "14px 40px 14px 14px", marginBottom: "16px" }}>
           <button
             type="button"
             onClick={() => {
@@ -403,7 +404,7 @@ export default function DashboardModule() {
           {supervisorError ? (
             <div style={{ color: ROJO, fontSize: "12px" }}>{supervisorError}</div>
           ) : (
-            <div style={{ color: "#d8e4de", fontSize: "12px", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{supervisorAnalysis}</div>
+            <div style={{ color: "#f0ede6", fontSize: "12px", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{supervisorAnalysis}</div>
           )}
         </div>
       )}
@@ -411,7 +412,7 @@ export default function DashboardModule() {
       {/* 1. RESUMEN EJECUTIVO */}
       <div style={{ ...card, background: "#161f1a", border: "1px solid #243028", marginBottom: "16px" }}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "14px", marginBottom: "12px" }}>📊 RESUMEN GENERAL</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "#d8e4de" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "#f0ede6" }}>
           <span>Total presupuestado: <strong style={{ color: GOLD }}>{ars(resumenEjecutivo.totalPresupuestado)}</strong></span>
           <span style={{ fontSize: "13px" }}>
             Total certificado:{" "}
@@ -420,16 +421,16 @@ export default function DashboardModule() {
           <span>% Avance general: <strong style={{ color: TEAL }}>{certificacionesResumen.pctAvanceGeneral.toFixed(1)}%</strong></span>
           {resumenEjecutivo.totalConsumido > 0 && (
             <span style={{ fontSize: "11px", color: "#6a8075" }}>
-              Total consumido: <strong style={{ color: "#d8e4de" }}>{ars(resumenEjecutivo.totalConsumido)}</strong>
+              Total consumido: <strong style={{ color: "#f0ede6" }}>{ars(resumenEjecutivo.totalConsumido)}</strong>
             </span>
           )}
           <span>Margen global: <strong style={{ color: margenColor }}>{ars(resumenEjecutivo.margen)} ({resumenEjecutivo.margenPct.toFixed(1)}%)</strong></span>
         </div>
-        <div style={{ fontSize: "11px", color: "#4a6055", marginBottom: "6px" }}>
+        <div style={{ fontSize: "11px", color: "rgba(240,237,230,0.55)", marginBottom: "6px" }}>
           {resumenEjecutivo.cantidadObras} obras | {ars(resumenEjecutivo.totalPresupuestado)} presupuestado | Margen {resumenEjecutivo.margenPct.toFixed(1)}%
         </div>
-        <div style={{ fontSize: "11px", color: "#4a6055" }}>
-          Cantidad de certificaciones: <strong style={{ color: "#d8e4de" }}>{certificacionesResumen.cantidadCertificacionesTotal}</strong>
+        <div style={{ fontSize: "11px", color: "rgba(240,237,230,0.55)" }}>
+          Cantidad de certificaciones: <strong style={{ color: "#f0ede6" }}>{certificacionesResumen.cantidadCertificacionesTotal}</strong>
           {certificacionesResumen.ultimoCertificadoGlobal && (
             <> | Último certificado: <strong style={{ color: TEAL }}>N° {certificacionesResumen.ultimoCertificadoGlobal.numero} - {certificacionesResumen.ultimoCertificadoGlobal.periodo}</strong></>
           )}
@@ -444,7 +445,7 @@ export default function DashboardModule() {
         {alertasCriticas.length === 0 ? (
           <div style={{ color: TEAL, fontSize: "12px" }}>✅ Todas las obras dentro de parámetros normales</div>
         ) : (
-          <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "11px", color: "#d8e4de", lineHeight: 1.6 }}>
+          <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "11px", color: "#f0ede6", lineHeight: 1.6 }}>
             {alertasCriticas.map((a, i) => (
               <li key={i}>{a.text}</li>
             ))}
@@ -456,12 +457,12 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Ranking de obras</div>
         {rankingObras.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin obras activas</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin obras activas</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #1e2a22", color: "#4a6055", textAlign: "left" }}>
+                <tr style={{ borderBottom: "1px solid rgba(240,237,230,0.08)", color: "rgba(240,237,230,0.55)", textAlign: "left" }}>
                   <th style={{ padding: "6px 8px", fontWeight: 600 }}>Obra</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600 }}>Presupuesto</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600 }}>Consumido</th>
@@ -476,13 +477,13 @@ export default function DashboardModule() {
                     key={s.proyecto.id}
                     style={{
                       cursor: "pointer",
-                      borderBottom: "1px solid #1e2a22",
+                      borderBottom: "1px solid rgba(240,237,230,0.08)",
                       background: i % 2 === 1 ? "rgba(30, 42, 34, 0.4)" : "transparent",
                     }}
                   >
-                    <td style={{ padding: "6px 8px", color: "#d8e4de" }}>{s.proyecto.nombre}</td>
+                    <td style={{ padding: "6px 8px", color: "#f0ede6" }}>{s.proyecto.nombre}</td>
                     <td style={{ padding: "6px 8px", color: GOLD }}>{ars(s.presupuestoTotal)}</td>
-                    <td style={{ padding: "6px 8px", color: "#d8e4de" }}>{ars(s.totalConsumido)}</td>
+                    <td style={{ padding: "6px 8px", color: "#f0ede6" }}>{ars(s.totalConsumido)}</td>
                     <td style={{ padding: "6px 8px", color: s.desvio <= 0 ? TEAL : ROJO }}>{ars(-s.desvio)}</td>
                     <td style={{ padding: "6px 8px", color: s.margenPct >= 10 ? TEAL : s.margenPct >= 5 ? AMARILLO : ROJO }}>{s.margenPct.toFixed(1)}%</td>
                     <td style={{ padding: "6px 8px" }}>{s.estado}</td>
@@ -500,7 +501,7 @@ export default function DashboardModule() {
           { label: "Presupuesto total", value: ars(totalPresupuestado), color: GOLD },
           { label: "Total certificado", value: ars(certificacionesResumen.totalCertificado), color: TEAL },
           { label: "% Avance general", value: `${certificacionesResumen.pctAvanceGeneral.toFixed(1)}%`, color: TEAL },
-          { label: "Certificaciones", value: certificacionesResumen.cantidadCertificacionesTotal, color: "#4a6055" },
+          { label: "Certificaciones", value: certificacionesResumen.cantidadCertificacionesTotal, color: "rgba(240,237,230,0.55)" },
           { label: "Cantidad de ítems", value: totalItems, color: TEAL },
           {
             label: "Ítem más caro",
@@ -510,17 +511,17 @@ export default function DashboardModule() {
                   return (d.length > 18 ? d.slice(0, 18) + "… " : d + " ") + ars(mostExpensiveItem.subtotal);
                 })()
               : "—",
-            color: "#d8e4de",
+            color: "#f0ede6",
           },
           {
             label: "Rubro más caro",
             value: mostExpensiveRubro ? `${mostExpensiveRubro.nombre} (${ars(mostExpensiveRubro.total)})` : "—",
-            color: "#d8e4de",
+            color: "#f0ede6",
           },
-          { label: "Riesgo / Alerta", value: mainRisk, color: alertasRojas.length > 0 ? ROJO : "#d8e4de" },
+          { label: "Riesgo / Alerta", value: mainRisk, color: alertasRojas.length > 0 ? ROJO : "#f0ede6" },
         ].map((k) => (
           <div key={k.label} style={card}>
-            <div style={{ fontSize: "11px", color: "#4a6055", marginBottom: "6px" }}>{k.label}</div>
+            <div style={{ fontSize: "11px", color: "rgba(240,237,230,0.55)", marginBottom: "6px" }}>{k.label}</div>
             <div style={{ fontSize: k.label === "Ítem más caro" || k.label === "Riesgo / Alerta" ? "12px" : "18px", fontWeight: 800, color: k.color, lineHeight: 1.25 }}>
               {k.value}
             </div>
@@ -532,7 +533,7 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "12px" }}>💚 Salud financiera por obra</div>
         {saludPorObra.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin obras activas</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin obras activas</div>
         ) : (
           saludPorObra.map(({ proyecto: p, presupuestoTotal, totalConsumido, pctAvance, desvio, desvioPct }) => {
             const certObra = certificacionesResumen.porObra.find((x) => x.proyecto.id === p.id);
@@ -542,12 +543,12 @@ export default function DashboardModule() {
             const barColorPrimary = primaryPct < 80 ? TEAL : primaryPct <= 95 ? AMARILLO : ROJO;
             const barColorConsumido = pctAvance < 80 ? TEAL : pctAvance <= 95 ? AMARILLO : ROJO;
             return (
-              <div key={p.id} style={{ marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid #1e2a22" }}>
+              <div key={p.id} style={{ marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid rgba(240,237,230,0.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "6px" }}>
-                  <span style={{ color: "#d8e4de", fontWeight: 600, fontSize: "12px" }}>{p.nombre}</span>
-                  <span style={{ color: "#4a6055", fontSize: "11px" }}>{p.codigo}</span>
+                  <span style={{ color: "#f0ede6", fontWeight: 600, fontSize: "12px" }}>{p.nombre}</span>
+                  <span style={{ color: "rgba(240,237,230,0.55)", fontSize: "11px" }}>{p.codigo}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#4a6055", marginBottom: "4px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "rgba(240,237,230,0.55)", marginBottom: "4px" }}>
                   <span>Presupuesto: {ars(presupuestoTotal)}</span>
                   {totalConsumido > 0 ? <span>Consumido: {ars(totalConsumido)}</span> : <span />}
                 </div>
@@ -558,7 +559,7 @@ export default function DashboardModule() {
                       {certObra.ultimoCertificado &&
                         ` | Certificaciones: ${certObra.cantidadCertificaciones} | Último: N° ${certObra.ultimoCertificado.numero} - ${certObra.ultimoCertificado.periodo}`}
                     </div>
-                    <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
+                    <div style={{ height: "8px", background: "rgba(240,237,230,0.08)", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
                       <div
                         style={{
                           width: `${Math.min(100, pctAvanceCert)}%`,
@@ -571,10 +572,10 @@ export default function DashboardModule() {
                     </div>
                     {totalConsumido > 0 && (
                       <>
-                        <div style={{ fontSize: "10px", color: "#4a6055", fontWeight: 600, marginBottom: "3px" }}>
+                        <div style={{ fontSize: "10px", color: "rgba(240,237,230,0.55)", fontWeight: 600, marginBottom: "3px" }}>
                           % avance (consumido): {pctAvance.toFixed(1)}%
                         </div>
-                        <div style={{ height: "4px", background: "#1e2a22", borderRadius: "2px", overflow: "hidden", marginBottom: "6px" }}>
+                        <div style={{ height: "4px", background: "rgba(240,237,230,0.08)", borderRadius: "2px", overflow: "hidden", marginBottom: "6px" }}>
                           <div
                             style={{
                               width: `${Math.min(100, pctAvance)}%`,
@@ -591,7 +592,7 @@ export default function DashboardModule() {
                 ) : (
                   <>
                     <div style={{ fontSize: "11px", color: GOLD, fontWeight: 700, marginBottom: "4px" }}>% avance (consumido): {pctAvance.toFixed(1)}%</div>
-                    <div style={{ height: "8px", background: "#1e2a22", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
+                    <div style={{ height: "8px", background: "rgba(240,237,230,0.08)", borderRadius: "4px", overflow: "hidden", marginBottom: "6px" }}>
                       <div
                         style={{
                           width: `${Math.min(100, pctAvance)}%`,
@@ -604,7 +605,7 @@ export default function DashboardModule() {
                     </div>
                   </>
                 )}
-                <div style={{ fontSize: "11px", color: desvio > 0 ? ROJO : "#4a6055" }}>
+                <div style={{ fontSize: "11px", color: desvio > 0 ? ROJO : "rgba(240,237,230,0.55)" }}>
                   Desvío: {desvio >= 0 ? "+" : ""}
                   {ars(desvio)} ({desvio >= 0 ? "+" : ""}
                   {desvioPct.toFixed(1)}%)
@@ -620,17 +621,17 @@ export default function DashboardModule() {
         <div style={card}>
           <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📋 Análisis por rubro</div>
           {rubroTotals.length === 0 ? (
-            <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
+            <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin ítems en el presupuesto</div>
           ) : (
             rubroTotals.map((r) => (
-              <div key={r.nombre} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
+              <div key={r.nombre} style={{ padding: "6px 0", borderBottom: "1px solid rgba(240,237,230,0.08)", fontSize: "12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                  <span style={{ color: "#d8e4de" }}>{r.nombre}</span>
+                  <span style={{ color: "#f0ede6" }}>{r.nombre}</span>
                   <span style={{ color: GOLD, fontWeight: 700 }}>
-                    {ars(r.total)} <span style={{ color: "#4a6055", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
+                    {ars(r.total)} <span style={{ color: "rgba(240,237,230,0.55)", fontWeight: 500 }}>({r.pct.toFixed(1)}%)</span>
                   </span>
                 </div>
-                <div style={{ height: "6px", background: "#1e2a22", borderRadius: "3px", overflow: "hidden" }}>
+                <div style={{ height: "6px", background: "rgba(240,237,230,0.08)", borderRadius: "3px", overflow: "hidden" }}>
                   <div style={{ width: `${Math.min(100, r.pct)}%`, height: "100%", background: TEAL, borderRadius: "3px", minWidth: r.pct > 0 ? "4px" : 0 }} />
                 </div>
               </div>
@@ -643,12 +644,12 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>📌 Resumen de precios actualizados</div>
         {!resumenPrecios.tieneDatos ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin actualizaciones de precios</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin actualizaciones de precios</div>
         ) : (
-          <div style={{ fontSize: "12px", color: "#d8e4de" }}>
+          <div style={{ fontSize: "12px", color: "#f0ede6" }}>
             <div style={{ marginBottom: "6px" }}>Productos con precio actualizado: <strong style={{ color: GOLD }}>{resumenPrecios.count}</strong></div>
             <div style={{ marginBottom: "6px" }}>Impacto total: <strong style={{ color: resumenPrecios.impacto >= 0 ? ROJO : TEAL }}>{ars(resumenPrecios.impacto)}</strong></div>
-            <div style={{ color: "#4a6055", fontSize: "11px" }}>
+            <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "11px" }}>
               Los precios actualizados impactan en {resumenPrecios.impacto >= 0 ? "+" : ""}{ars(resumenPrecios.impacto)} ({resumenPrecios.impacto >= 0 ? "+" : ""}{resumenPrecios.impactoPct.toFixed(1)}%) sobre el presupuesto original.
             </div>
           </div>
@@ -659,11 +660,11 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>🏆 Top 5 ítems más caros</div>
         {top5Items.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin datos</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin datos</div>
         ) : (
           top5Items.map((x, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
-              <span style={{ color: "#d8e4de" }} title={x.item.desc}>#{i + 1} {(x.item.desc || x.item.codigo || "—").slice(0, 36)}{(x.item.desc && x.item.desc.length > 36 ? "…" : "")}</span>
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(240,237,230,0.08)", fontSize: "12px" }}>
+              <span style={{ color: "#f0ede6" }} title={x.item.desc}>#{i + 1} {(x.item.desc || x.item.codigo || "—").slice(0, 36)}{(x.item.desc && x.item.desc.length > 36 ? "…" : "")}</span>
               <span style={{ color: GOLD, fontWeight: 700 }}>{ars(x.subtotal)}</span>
             </div>
           ))
@@ -675,7 +676,7 @@ export default function DashboardModule() {
         <div style={card}>
           <div style={{ fontWeight: 700, color: ROJO, fontSize: "12px", marginBottom: "10px" }}>⚠️ Alertas de concentración</div>
           {riskWarnings.map((w, i) => (
-            <div key={i} style={{ padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px", color: "#d8e4de" }}>
+            <div key={i} style={{ padding: "6px 0", borderBottom: "1px solid rgba(240,237,230,0.08)", fontSize: "12px", color: "#f0ede6" }}>
               {w.text}
             </div>
           ))}
@@ -685,13 +686,13 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: GOLD, fontSize: "12px", marginBottom: "10px" }}>🏆 Top 5 obras por presupuesto</div>
         {top5obras.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin datos</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin datos</div>
         ) : (
           top5obras.map((p, i) => {
             const tot = (p.items || []).reduce((s, it) => s + itemSubtotal(it, p.iccPct ?? p.icc), 0);
             return (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
-                <span style={{ color: "#d8e4de" }}>#{i + 1} {p.nombre}</span>
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(240,237,230,0.08)", fontSize: "12px" }}>
+                <span style={{ color: "#f0ede6" }}>#{i + 1} {p.nombre}</span>
                 <span style={{ color: GOLD, fontWeight: 700 }}>{ars(tot)}</span>
               </div>
             );
@@ -702,11 +703,11 @@ export default function DashboardModule() {
       <div style={card}>
         <div style={{ fontWeight: 700, color: ROJO, fontSize: "12px", marginBottom: "10px" }}>🔴 Top 5 ítems con alerta roja</div>
         {alertasRojas.length === 0 ? (
-          <div style={{ color: "#4a6055", fontSize: "12px" }}>Sin alertas 🎉</div>
+          <div style={{ color: "rgba(240,237,230,0.55)", fontSize: "12px" }}>Sin alertas 🎉</div>
         ) : (
           alertasRojas.slice(0, 5).map((it, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e2a22", fontSize: "12px" }}>
-              <span style={{ color: "#d8e4de" }}>{it.desc}</span>
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(240,237,230,0.08)", fontSize: "12px" }}>
+              <span style={{ color: "#f0ede6" }}>{it.desc}</span>
               <span style={{ color: ROJO, fontWeight: 700 }}>{it.obra}</span>
             </div>
           ))

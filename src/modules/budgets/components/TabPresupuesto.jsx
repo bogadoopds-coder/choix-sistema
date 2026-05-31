@@ -897,7 +897,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={11} style={{ ...S.td, padding: "8px 12px", verticalAlign: "top", borderBottom: "1px solid #1e2a22" }}>
+                      <td colSpan={11} style={{ ...S.td, padding: "8px 12px", verticalAlign: "top", borderBottom: `1px solid ${COLORS.border}` }}>
                         <div
                           style={{
                             background: COLORS.subtle,
@@ -915,7 +915,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
                               : "✏️ Ítem custom - sin matching automático"}
                           </div>
                           {item.rendimientos && (
-                            <div style={{ marginTop: "8px", borderTop: "1px solid #1e2a22", paddingTop: "8px" }}>
+                            <div style={{ marginTop: "8px", borderTop: `1px solid ${COLORS.border}`, paddingTop: "8px" }}>
                               <div style={{ fontWeight: 600, color: COLORS.verde, marginBottom: "4px", fontSize: "11px" }}>
                                 📐 Rendimientos Chandías — {(item.rendimientos.tipo || "").replace(/_/g, " ")}
                               </div>
@@ -1047,7 +1047,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
               marginTop: "16px",
               padding: "14px 40px 14px 14px",
               borderRadius: "8px",
-              background: "#0f1210",
+              background: COLORS.bg,
               border: `1px solid ${COLORS.border}`,
               color: COLORS.text,
               position: "relative",
@@ -1092,7 +1092,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
         >
           <div
             style={{
-              background: "#141a16",
+              background: COLORS.card,
               border: `1px solid ${COLORS.border}`,
               borderRadius: "10px",
               padding: "20px",

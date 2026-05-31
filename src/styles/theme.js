@@ -1,29 +1,34 @@
+// Praxia Consulting — design tokens
 export const COLORS = {
-  // Choix brand colors (from brochure)
-  bg: "#0f1210",
-  card: "#141a16",
-  border: "#1e2a22",
-  gold: "#1A9B7B", // Choix teal green — replaces gold throughout
-  goldDim: "#1A9B7B22",
-  text: "#d8e4de",
-  muted: "#4a6055",
-  subtle: "#182018",
+  bg: "#080c0a",
+  card: "#0c100e",
+  border: "rgba(240,237,230,0.08)",
+  text: "#f0ede6",
+  muted: "rgba(240,237,230,0.55)",
+  mutedDim: "rgba(240,237,230,0.18)",
+  subtle: "rgba(240,237,230,0.04)",
+  gold: "#3ecfa0",
+  goldDim: "rgba(62,207,160,0.08)",
   verde: "#22c55e",
   amarillo: "#f59e0b",
   rojo: "#ef4444",
-  blue: "#3b9b82",
-  purple: "#5b8a7b",
-  // Logo accent
-  teal: "#1A9B7B",
-  tealDark: "#127a60",
-  tealDim: "#1A9B7B18",
+  blue: "#3ecfa0",
+  purple: "#7ecfb8",
+  teal: "#3ecfa0",
+  tealDark: "#2da87f",
+  tealDim: "rgba(62,207,160,0.08)",
+};
+
+export const FONTS = {
+  heading: "'Space Grotesk', sans-serif",
+  body: "'DM Sans', sans-serif",
 };
 
 export const S = {
   app: {
     minHeight: "auto",
     background: COLORS.bg,
-    fontFamily: "'Inter', 'Segoe UI', Arial, sans-serif",
+    fontFamily: FONTS.body,
     color: COLORS.text,
     fontSize: "13px",
   },
@@ -52,7 +57,7 @@ export const S = {
         : v === "red"
         ? "#ef444420"
         : v === "blue"
-        ? "#3b82f620"
+        ? "rgba(62,207,160,0.12)"
         : "transparent",
     color:
       v === "gold"
@@ -60,7 +65,7 @@ export const S = {
         : v === "red"
         ? COLORS.rojo
         : v === "blue"
-        ? COLORS.blue
+        ? COLORS.teal
         : COLORS.muted,
     border:
       v === "gold"
@@ -69,7 +74,7 @@ export const S = {
             v === "red"
               ? COLORS.rojo
               : v === "blue"
-              ? COLORS.blue
+              ? COLORS.teal
               : COLORS.border
           }`,
     borderRadius: "6px",
@@ -97,6 +102,7 @@ export const S = {
     marginBottom: "4px",
     display: "block",
     textTransform: "uppercase",
+    fontFamily: FONTS.heading,
   },
   th: {
     padding: "8px 10px",
@@ -107,11 +113,11 @@ export const S = {
     textTransform: "uppercase",
     borderBottom: `1px solid ${COLORS.border}`,
     whiteSpace: "nowrap",
+    fontFamily: FONTS.heading,
   },
   td: {
     padding: "7px 10px",
-    borderBottom: `1px solid ${COLORS.border}15`,
+    borderBottom: `1px solid ${COLORS.border}`,
     verticalAlign: "middle",
   },
 };
-

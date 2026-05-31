@@ -189,7 +189,7 @@ export function PresupuestosModulePrecios({ BASE }) {
       } catch {}
     })();
   }, [pa, ready]);
-  if (!ready) return <div style={{ padding: "40px", textAlign: "center", color: "#4a6055" }}>Cargando...</div>;
+  if (!ready) return <div style={{ padding: "40px", textAlign: "center", color: COLORS.muted }}>Cargando...</div>;
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "16px", background: COLORS.bg }}>
       <GestorPrecios preciosActualizados={pa} setPreciosActualizados={setPa} BASE={BASE} />

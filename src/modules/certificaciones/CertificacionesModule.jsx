@@ -149,7 +149,7 @@ function ListaCertificaciones({ proyecto, preciosActualizados, onNewCert, onSele
             marginBottom: "16px",
             padding: "14px 40px 14px 14px",
             borderRadius: "8px",
-            background: "#0f1210",
+            background: COLORS.bg,
             border: `1px solid ${COLORS.border}`,
             color: "#ffffff",
             position: "relative",

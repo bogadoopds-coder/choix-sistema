@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { sendChat } from "../../services/ai/chatClient";
+import { COLORS, FONTS } from "../../styles/theme";
 
 const SYSTEM_PROMPT = `Sos "Choix Constructora", una app conversacional de gestión de obra para constructoras en Argentina.
 
@@ -95,14 +96,14 @@ function MarkdownRenderer({ text }) {
     const parts = t.split(/(\*\*.*?\*\*|`.*?`)/);
     return parts.map((p, i) => {
       if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} style={{ color: "#fff", fontWeight: 700 }}>{p.slice(2, -2)}</strong>;
-      if (p.startsWith("`") && p.endsWith("`")) return <code key={i} style={{ background: "#ffffff15", padding: "1px 5px", borderRadius: "3px", fontSize: "0.78rem", color: "#1A9B7B" }}>{p.slice(1, -1)}</code>;
+      if (p.startsWith("`") && p.endsWith("`")) return <code key={i} style={{ background: "#ffffff15", padding: "1px 5px", borderRadius: "3px", fontSize: "0.78rem", color: COLORS.teal }}>{p.slice(1, -1)}</code>;
       return p;
     });
   };
   const renderLine = (line, i) => {
-    if (line.startsWith("### ")) return <h3 key={i} style={{ color: "#1A9B7B", fontSize: "0.85rem", fontWeight: 700, margin: "10px 0 4px", letterSpacing: "0.05em", textTransform: "uppercase" }}>{line.slice(4)}</h3>;
-    if (line.startsWith("## ")) return <h2 key={i} style={{ color: "#1A9B7B", fontSize: "1rem", fontWeight: 700, margin: "14px 0 6px", borderBottom: "1px solid #1A9B7B40", paddingBottom: "4px" }}>{line.slice(3)}</h2>;
-    if (line.startsWith("# ")) return <h1 key={i} style={{ color: "#1A9B7B", fontSize: "1.1rem", fontWeight: 800, margin: "16px 0 8px" }}>{line.slice(2)}</h1>;
+    if (line.startsWith("### ")) return <h3 key={i} style={{ color: COLORS.teal, fontSize: "0.85rem", fontWeight: 700, margin: "10px 0 4px", letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: FONTS.heading }}>{line.slice(4)}</h3>;
+    if (line.startsWith("## ")) return <h2 key={i} style={{ color: COLORS.teal, fontSize: "1rem", fontWeight: 700, margin: "14px 0 6px", borderBottom: `1px solid ${COLORS.teal}40`, paddingBottom: "4px", fontFamily: FONTS.heading }}>{line.slice(3)}</h2>;
+    if (line.startsWith("# ")) return <h1 key={i} style={{ color: COLORS.teal, fontSize: "1.1rem", fontWeight: 800, margin: "16px 0 8px", fontFamily: FONTS.heading }}>{line.slice(2)}</h1>;
     if (line.startsWith("|")) {
       const cells = line.split("|").filter((c) => c.trim() !== "");
       if (cells.every((c) => /^[-:\s]+$/.test(c))) return null;
@@ -112,10 +113,10 @@ function MarkdownRenderer({ text }) {
       const checked = line.startsWith("- [x]");
       return <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", margin: "2px 0", fontSize: "0.82rem", color: "#ccc" }}><span style={{ color: checked ? "#22c55e" : "#666" }}>{checked ? "✅" : "⬜"}</span>{line.slice(6)}</div>;
     }
-    if (line.startsWith("- ")) return <div key={i} style={{ display: "flex", gap: "8px", margin: "2px 0", fontSize: "0.82rem", color: "#ccc" }}><span style={{ color: "#1A9B7B", marginTop: "1px" }}>▸</span><span>{renderInline(line.slice(2))}</span></div>;
+    if (line.startsWith("- ")) return <div key={i} style={{ display: "flex", gap: "8px", margin: "2px 0", fontSize: "0.82rem", color: COLORS.muted }}><span style={{ color: COLORS.teal, marginTop: "1px" }}>▸</span><span>{renderInline(line.slice(2))}</span></div>;
     if (/\[.*?\]/.test(line) && !line.startsWith("|")) {
       const parts = line.split(/(\[.*?\])/);
-      return <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "8px 0" }}>{parts.map((p, j) => p.startsWith("[") && p.endsWith("]") ? <span key={j} style={{ background: "#1A9B7B20", border: "1px solid #1A9B7B60", color: "#1A9B7B", padding: "3px 10px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer", fontWeight: 600 }}>{p.slice(1, -1)}</span> : p ? <span key={j} style={{ fontSize: "0.82rem", color: "#aaa" }}>{p}</span> : null)}</div>;
+      return <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "8px 0" }}>{parts.map((p, j) => p.startsWith("[") && p.endsWith("]") ? <span key={j} style={{ background: COLORS.tealDim, border: `1px solid ${COLORS.teal}60`, color: COLORS.teal, padding: "3px 10px", borderRadius: "4px", fontSize: "0.75rem", cursor: "pointer", fontWeight: 600 }}>{p.slice(1, -1)}</span> : p ? <span key={j} style={{ fontSize: "0.82rem", color: COLORS.muted }}>{p}</span> : null)}</div>;
     }
     if (line.trim() === "") return <div key={i} style={{ height: "6px" }} />;
     return <div key={i} style={{ fontSize: "0.82rem", color: "#ccc", margin: "2px 0", lineHeight: "1.5" }}>{renderInline(line)}</div>;
@@ -242,7 +243,7 @@ ${attachedFile.content}
     if (initCmd) setTimeout(() => sendMessage(initCmd), 100);
   }, []);
 
-  const TEAL = "#1A9B7B";
+  const TEAL = COLORS.teal;
   const handleKey = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -251,16 +252,16 @@ ${attachedFile.content}
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0f1210" }}>
-      <div style={{ padding: "10px 14px", display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid #1e2a2215", background: "#141a16" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: COLORS.bg }}>
+      <div style={{ padding: "10px 14px", display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.card }}>
         {QUICK_CMDS.map((q) => (
           <button
             key={q.cmd}
             onClick={() => sendMessage(q.cmd)}
             disabled={loading}
-            style={{ background: "#1e2a22", border: "1px solid #1A9B7B30", color: "#8ab8a8", padding: "4px 10px", borderRadius: "4px", fontSize: "0.72rem", cursor: "pointer", fontFamily: "inherit" }}
+            style={{ background: COLORS.subtle, border: `1px solid ${COLORS.teal}30`, color: COLORS.muted, padding: "4px 10px", borderRadius: "4px", fontSize: "0.72rem", cursor: "pointer", fontFamily: "inherit" }}
             onMouseEnter={(e) => { e.target.style.borderColor = TEAL; e.target.style.color = TEAL; }}
-            onMouseLeave={(e) => { e.target.style.borderColor = "#1A9B7B30"; e.target.style.color = "#8ab8a8"; }}
+            onMouseLeave={(e) => { e.target.style.borderColor = `${COLORS.teal}30`; e.target.style.color = COLORS.muted; }}
           >
             {q.label}
           </button>
@@ -270,37 +271,37 @@ ${attachedFile.content}
         {messages.length === 0 && (
           <div style={{ textAlign: "center", marginTop: "60px", opacity: 0.5 }}>
             <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>🤖</div>
-            <div style={{ fontSize: "0.9rem", color: "#8ab8a8" }}>Agente Choix listo</div>
-            <div style={{ fontSize: "0.75rem", color: "#4a6055", marginTop: "6px" }}>Usá los comandos rápidos o escribí lo que necesitás</div>
+            <div style={{ fontSize: "0.9rem", color: COLORS.muted, fontFamily: FONTS.heading }}>Agente Praxia listo</div>
+            <div style={{ fontSize: "0.75rem", color: COLORS.mutedDim, marginTop: "6px" }}>Usá los comandos rápidos o escribí lo que necesitás</div>
           </div>
         )}
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "12px" }}>
             {msg.role === "assistant" && (
-              <div style={{ width: "26px", height: "26px", borderRadius: "6px", background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0, marginRight: "8px", marginTop: "2px" }}>C</div>
+              <div style={{ width: "26px", height: "26px", borderRadius: "6px", background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0, marginRight: "8px", marginTop: "2px", color: COLORS.bg, fontWeight: 700, fontFamily: FONTS.heading }}>P</div>
             )}
-            <div style={{ maxWidth: "85%", background: msg.role === "user" ? "#1A9B7B18" : "#141a16", border: `1px solid ${msg.role === "user" ? "#1A9B7B40" : "#1e2a22"}`, borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", padding: "10px 14px" }}>
-              {msg.role === "user" ? <div style={{ fontSize: "0.82rem", color: "#d8e4de" }}>{msg.content}</div> : <MarkdownRenderer text={msg.content} />}
+            <div style={{ maxWidth: "85%", background: msg.role === "user" ? COLORS.tealDim : COLORS.card, border: `1px solid ${msg.role === "user" ? `${COLORS.teal}40` : COLORS.border}`, borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", padding: "10px 14px" }}>
+              {msg.role === "user" ? <div style={{ fontSize: "0.82rem", color: COLORS.text }}>{msg.content}</div> : <MarkdownRenderer text={msg.content} />}
             </div>
           </div>
         ))}
         {loading && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-            <div style={{ width: "26px", height: "26px", borderRadius: "6px", background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>C</div>
-            <div style={{ background: "#141a16", border: "1px solid #1e2a22", borderRadius: "12px 12px 12px 2px", padding: "10px 16px", display: "flex", gap: "5px" }}>
+            <div style={{ width: "26px", height: "26px", borderRadius: "6px", background: TEAL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: COLORS.bg, fontWeight: 700 }}>P</div>
+            <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: "12px 12px 12px 2px", padding: "10px 16px", display: "flex", gap: "5px" }}>
               {[0, 1, 2].map((j) => <div key={j} style={{ width: "6px", height: "6px", borderRadius: "50%", background: TEAL, animation: "bounce 1s infinite", animationDelay: `${j * 0.2}s` }} />)}
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <div style={{ padding: "12px 14px", borderTop: "1px solid #1e2a22", background: "#141a16" }}>
+      <div style={{ padding: "12px 14px", borderTop: `1px solid ${COLORS.border}`, background: COLORS.card }}>
         {attachedFile && (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#1e2a22", borderRadius: "6px", padding: "6px 10px", marginBottom: "8px", fontSize: "11px" }}>
-            <span style={{ color: "#1A9B7B" }}>📎</span>
-            <span style={{ color: "#d8e4de", flex: 1 }}>{attachedFile.name}</span>
-            <span style={{ color: "#4a6055" }}>({attachedFile.type})</span>
-            <button onClick={() => setAttachedFile(null)} style={{ background: "none", border: "none", color: "#e05a5a", cursor: "pointer", fontSize: "14px", padding: "0" }}>×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: COLORS.subtle, borderRadius: "6px", padding: "6px 10px", marginBottom: "8px", fontSize: "11px" }}>
+            <span style={{ color: COLORS.teal }}>📎</span>
+            <span style={{ color: COLORS.text, flex: 1 }}>{attachedFile.name}</span>
+            <span style={{ color: COLORS.muted }}>({attachedFile.type})</span>
+            <button onClick={() => setAttachedFile(null)} style={{ background: "none", border: "none", color: COLORS.rojo, cursor: "pointer", fontSize: "14px", padding: "0" }}>×</button>
           </div>
         )}
         <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
@@ -309,7 +310,7 @@ ${attachedFile.content}
             onClick={() => fileRefChat.current.click()}
             disabled={loadingFile}
             title="Adjuntar PDF, Excel o Word"
-            style={{ background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 12px", color: loadingFile ? "#4a6055" : "#8ab8a8", cursor: "pointer", fontSize: "16px", flexShrink: 0 }}
+            style={{ background: COLORS.subtle, border: `1px solid ${COLORS.border}`, borderRadius: "8px", padding: "10px 12px", color: loadingFile ? COLORS.mutedDim : COLORS.muted, cursor: "pointer", fontSize: "16px", flexShrink: 0 }}
           >
             {loadingFile ? "⏳" : "📎"}
           </button>
@@ -320,23 +321,23 @@ ${attachedFile.content}
             onKeyDown={handleKey}
             placeholder="Escribí un comando o adjuntá un archivo... (Enter para enviar)"
             rows={1}
-            style={{ flex: 1, background: "#1e2a22", border: "1px solid #2a3a30", borderRadius: "8px", padding: "10px 14px", color: "#d8e4de", fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
+            style={{ flex: 1, background: COLORS.subtle, border: `1px solid ${COLORS.border}`, borderRadius: "8px", padding: "10px 14px", color: COLORS.text, fontSize: "0.82rem", fontFamily: "inherit", resize: "none", outline: "none", lineHeight: "1.5", maxHeight: "120px", overflowY: "auto" }}
             onFocus={(e) => (e.target.style.borderColor = TEAL)}
-            onBlur={(e) => (e.target.style.borderColor = "#2a3a30")}
+            onBlur={(e) => (e.target.style.borderColor = COLORS.border)}
           />
           <button
             onClick={() => sendMessage()}
             disabled={loading || (!input.trim() && !attachedFile)}
             style={{
-              background: loading || (!input.trim() && !attachedFile) ? "#1e2a22" : TEAL,
+              background: loading || (!input.trim() && !attachedFile) ? COLORS.subtle : TEAL,
               border: "none",
               borderRadius: "8px",
               padding: "10px 16px",
-              color: loading || (!input.trim() && !attachedFile) ? "#4a6055" : "#fff",
+              color: loading || (!input.trim() && !attachedFile) ? COLORS.mutedDim : COLORS.bg,
               fontWeight: 700,
               fontSize: "0.8rem",
               cursor: loading || (!input.trim() && !attachedFile) ? "not-allowed" : "pointer",
-              fontFamily: "inherit",
+              fontFamily: FONTS.heading,
               whiteSpace: "nowrap",
             }}
           >

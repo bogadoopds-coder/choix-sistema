@@ -7,6 +7,8 @@ import CertificacionesModule from "./modules/certificaciones/CertificacionesModu
 import ComprasModule from "./modules/compras/ComprasModule";
 import { BASE } from "./data/priceBase";
 import { COLORS, FONTS } from "./styles/theme";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
+import LoginScreen from "./auth/LoginScreen";
 
 function PraxiaLogo({ size = "md", collapsed = false }) {
   const fontSize = size === "lg" ? "22px" : size === "sm" ? "14px" : "18px";
@@ -43,7 +45,7 @@ const NAV_ITEMS = [
 
 const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
 
-export default function PraxiaApp() {
+function PraxiaApp() {
   const [activeModule, setActiveModule] = useState("chat");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatInitCmd, setChatInitCmd] = useState(null);
@@ -147,4 +149,25 @@ export default function PraxiaApp() {
       `}</style>
     </div>
   );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
+  );
+}
+
+function Gate() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#15231C", color: "#F4F1E9", fontFamily: "Inter, system-ui, sans-serif" }}>
+        Cargando...
+      </div>
+    );
+  }
+  if (!user) return <LoginScreen />;
+  return <PraxiaApp />;
 }

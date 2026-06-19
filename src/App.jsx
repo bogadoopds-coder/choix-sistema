@@ -49,6 +49,7 @@ function PraxiaApp() {
   const [activeModule, setActiveModule] = useState("chat");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatInitCmd, setChatInitCmd] = useState(null);
+  const { user, logout } = useAuth();
 
   function navigate(id) {
     if (CHAT_MODULES[id]) {
@@ -126,6 +127,13 @@ function PraxiaApp() {
             <PraxiaLogo size="sm" />
             <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: COLORS.verde }} />
             <span style={{ fontSize: "11px", color: COLORS.verde }}>EN LÍNEA</span>
+            <span style={{ fontSize: "11px", color: COLORS.muted, marginLeft: "8px" }}>{user?.email}</span>
+            <button
+              onClick={logout}
+              style={{ fontSize: "11px", color: COLORS.text, background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginLeft: "4px" }}
+            >
+              Salir
+            </button>
           </div>
         </div>
 

@@ -93,10 +93,6 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
   }
 
   async function llamarAgentePliegos(textoExtraido) {
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("Falta VITE_ANTHROPIC_API_KEY (definila en .env y rebuild).");
-    }
     const CHUNK_SIZE = 5000;
     const chunks = [];
     for (let i = 0; i < textoExtraido.length; i += CHUNK_SIZE) {
@@ -106,60 +102,16 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
     let todosItems = [];
 
     for (const chunk of chunks) {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/.netlify/functions/agent-pliegos", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 4000,
-          system:
-            "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",
-          messages: [
-            {
-              role: "user",
-              content: `Extraé todos los ítems de este fragmento de cómputo y presupuesto provincial argentino. 
-Devolvé ÚNICAMENTE un JSON válido sin texto adicional, con esta estructura:
-{"items":[{"rubroId":"1","rubroNombre":"TRABAJOS PREPARATORIOS","codigo":"1.2","descripcion":"Cartel de obra","unidad":"m2","cantidad":12,"precioUnitario":107414.92}]}
-
-Reglas:
-- codigo siempre "rubro.item" ej: "1.2", "3.5"  
-- números en formato JS (punto decimal, sin puntos de miles)
-- ignorá totales de rubro, porcentajes y honorarios
-- si el ítem tiene número suelto dentro de un rubro, inferí el rubro del contexto
-
-Fragmento:
-${chunk}`,
-            },
-          ],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ textoPDF: chunk }),
       });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 280)}`);
-      }
+      if (!res.ok) { const errText = await res.text().catch(() => ""); throw new Error(`Pliegos ${res.status}: ${errText.slice(0, 280)}`); }
       const data = await res.json().catch(() => ({}));
-      const texto = data.content?.[0]?.text || "";
-      const jsonMatch = texto.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          const parsedItems = parsed?.items;
-          // Algunos chunks pueden devolver "items" no como array (objeto único). Normalizamos para
-          // que el merge acumulativo no descarte esos ítems y termine pareciendo que solo quedó el último chunk.
-          if (Array.isArray(parsedItems)) {
-            todosItems = [...todosItems, ...parsedItems];
-          } else if (parsedItems && typeof parsedItems === "object") {
-            todosItems = [...todosItems, parsedItems];
-          }
-        } catch (_) {
-          /* ignorar chunk con JSON inválido */
-        }
-      }
+      const parsedItems = data?.items;
+      if (Array.isArray(parsedItems)) { todosItems = [...todosItems, ...parsedItems]; }
+      else if (parsedItems && typeof parsedItems === "object") { todosItems = [...todosItems, parsedItems]; }
       console.log(`Chunk ${chunks.indexOf(chunk) + 1}/${chunks.length}: ${todosItems.length} items acumulados`);
     }
 

@@ -102,16 +102,29 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
     let todosItems = [];
 
     for (const chunk of chunks) {
-      const res = await fetch("/.netlify/functions/agent-pliegos", {
+      const res = await fetch("/.netlify/functions/agent-pliegos-ia", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ textoPDF: chunk }),
+        body: JSON.stringify({ chunk }),
       });
-      if (!res.ok) { const errText = await res.text().catch(() => ""); throw new Error(`Pliegos ${res.status}: ${errText.slice(0, 280)}`); }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Pliegos ${res.status}: ${errText.slice(0, 280)}`);
+      }
       const data = await res.json().catch(() => ({}));
-      const parsedItems = data?.items;
-      if (Array.isArray(parsedItems)) { todosItems = [...todosItems, ...parsedItems]; }
-      else if (parsedItems && typeof parsedItems === "object") { todosItems = [...todosItems, parsedItems]; }
+      const texto = data.text || "";
+      const jsonMatch = texto.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const parsedItems = parsed?.items;
+          if (Array.isArray(parsedItems)) {
+            todosItems = [...todosItems, ...parsedItems];
+          } else if (parsedItems && typeof parsedItems === "object") {
+            todosItems = [...todosItems, parsedItems];
+          }
+        } catch (_) { /* ignorar chunk con JSON inválido */ }
+      }
       console.log(`Chunk ${chunks.indexOf(chunk) + 1}/${chunks.length}: ${todosItems.length} items acumulados`);
     }
 

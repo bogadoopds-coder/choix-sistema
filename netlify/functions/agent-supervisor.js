@@ -91,7 +91,7 @@ Sé numérico cuando los datos lo permitan; si falta un campo, indicá la limita
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 4096,
         system,
         messages: [{ role: "user", content: userContent }],

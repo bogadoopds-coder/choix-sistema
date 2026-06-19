@@ -8,7 +8,7 @@ exports.handler = async (event) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     const body = {
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: (typeof max_tokens === "number" && max_tokens > 0) ? Math.min(max_tokens, 16384) : 1024,
       messages: messages
     };

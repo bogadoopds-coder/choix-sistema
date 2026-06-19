@@ -40,7 +40,7 @@ exports.handler = async (event) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 4000,
         system:
           "Sos un experto en presupuestación de obra pública argentina. Respondés SOLO con JSON válido, sin markdown ni texto adicional.",

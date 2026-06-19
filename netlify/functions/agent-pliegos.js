@@ -53,7 +53,7 @@ Reglas:
         "content-type": "application/json"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 3000,
         system,
         messages: [{ role: "user", content: userMessage }]

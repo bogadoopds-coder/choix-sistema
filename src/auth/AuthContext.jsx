@@ -1,16 +1,45 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth } from "../firebase";
+import { collection, getDocs, getDoc, doc } from "firebase/firestore";
+import { auth, db } from "../firebase";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [orgId, setOrgId] = useState(null);
+  const [rol, setRol] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      if (u) {
+        try {
+          // Buscar en qué organización está este usuario
+          const orgsSnap = await getDocs(collection(db, "orgs"));
+          let foundOrgId = null;
+          let foundRol = null;
+          for (const orgDoc of orgsSnap.docs) {
+            const userRef = doc(db, "orgs", orgDoc.id, "usuarios", u.uid);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+              foundOrgId = orgDoc.id;
+              foundRol = userSnap.data().rol || null;
+              break;
+            }
+          }
+          setOrgId(foundOrgId);
+          setRol(foundRol);
+        } catch (err) {
+          console.error("Error buscando organización del usuario:", err);
+          setOrgId(null);
+          setRol(null);
+        }
+      } else {
+        setOrgId(null);
+        setRol(null);
+      }
       setLoading(false);
     });
     return unsub;
@@ -20,7 +49,7 @@ export function AuthProvider({ children }) {
   const logout = () => signOut(auth);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, orgId, rol, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

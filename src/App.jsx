@@ -168,7 +168,7 @@ export default function App() {
 }
 
 function Gate() {
-  const { user, loading } = useAuth();
+  const { user, orgId, rol, loading } = useAuth();
   if (loading) {
     return (
       <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#15231C", color: "#F4F1E9", fontFamily: "Inter, system-ui, sans-serif" }}>

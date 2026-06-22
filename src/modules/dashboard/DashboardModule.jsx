@@ -3,6 +3,8 @@ import { storage } from "../../services/storage";
 import { precioVigente } from "../../utils/budgets";
 import { RUBROS_MAP } from "../budgets/utils/parseUtils";
 import { COLORS, FONTS } from "../../styles/theme";
+import { useAuth } from "../../auth/AuthContext";
+import { getObras } from "../../services/obrasRepo";
 
 const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 
@@ -38,6 +40,7 @@ function rubroFromItem(it) {
 }
 
 export default function DashboardModule() {
+  const { orgId } = useAuth();
   const [proyectos, setProyectos] = useState([]);
   const [preciosActualizados, setPreciosActualizados] = useState({});
   const [supervisorLoading, setSupervisorLoading] = useState(false);
@@ -46,8 +49,10 @@ export default function DashboardModule() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await storage.get("choix_proyectos");
-        if (r?.value) setProyectos(JSON.parse(r.value));
+        if (orgId) {
+          const obras = await getObras(orgId);
+          setProyectos(obras);
+        }
       } catch {}
       try {
         let pr = await storage.get("choix_precios_actualizados");
@@ -55,7 +60,7 @@ export default function DashboardModule() {
         if (pr?.value) setPreciosActualizados(JSON.parse(pr.value));
       } catch {}
     })();
-  }, []);
+  }, [orgId]);
 
   const obras = proyectos.filter((p) => p.activo !== false);
 

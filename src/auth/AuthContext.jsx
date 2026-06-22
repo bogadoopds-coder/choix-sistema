@@ -17,20 +17,14 @@ export function AuthProvider({ children }) {
       if (u) {
         try {
           // Buscar en qué organización está este usuario
-          const orgsSnap = await getDocs(collection(db, "orgs"));
-          let foundOrgId = null;
-          let foundRol = null;
-          for (const orgDoc of orgsSnap.docs) {
-            const userRef = doc(db, "orgs", orgDoc.id, "usuarios", u.uid);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-              foundOrgId = orgDoc.id;
-              foundRol = userSnap.data().rol || null;
-              break;
-            }
+          const miembroSnap = await getDoc(doc(db, "miembros", u.uid));
+          if (miembroSnap.exists()) {
+            setOrgId(miembroSnap.data().orgId || null);
+            setRol(miembroSnap.data().rol || null);
+          } else {
+            setOrgId(null);
+            setRol(null);
           }
-          setOrgId(foundOrgId);
-          setRol(foundRol);
         } catch (err) {
           console.error("Error buscando organización del usuario:", err);
           setOrgId(null);

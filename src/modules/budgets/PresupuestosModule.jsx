@@ -6,6 +6,8 @@ import { storage } from "../../services/storage";
 import ProjectsList from "./ProjectsList";
 import ProjectView from "./ProjectView";
 import { GestorPrecios } from "../prices/PricesModule";
+import { useAuth } from "../../auth/AuthContext";
+import { getObras } from "../../services/obrasRepo";
 
 // ─── NUEVO PROYECTO ───────────────────────────────────────────────────────────
 function NuevoProyecto({ onCrear, onCancel }) {
@@ -38,17 +40,21 @@ function NuevoProyecto({ onCrear, onCancel }) {
 
 // ─── MAIN MODULE ─────────────────────────────────────────────────────────────
 export default function PresupuestosModule({ BASE }) {
+  const { orgId } = useAuth();
   const [proyectos, setProyectos] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [view, setView] = useState("lista");
   const [storageReady, setStorageReady] = useState(false);
   const [preciosActualizados, setPreciosActualizados] = useState({});
+  const [huboCambioUsuario, setHuboCambioUsuario] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const r = await storage.get("choix_proyectos");
-        if (r?.value) setProyectos(JSON.parse(r.value));
+        if (orgId) {
+          const obras = await getObras(orgId);
+          setProyectos(obras);
+        }
       } catch {}
       try {
         const r2 = await storage.get("choix_precios");
@@ -56,16 +62,17 @@ export default function PresupuestosModule({ BASE }) {
       } catch {}
       setStorageReady(true);
     })();
-  }, []);
+  }, [orgId]);
 
   useEffect(() => {
     if (!storageReady) return;
+    if (!huboCambioUsuario) return;
     (async () => {
       try {
         await storage.set("choix_proyectos", JSON.stringify(proyectos));
       } catch {}
     })();
-  }, [proyectos, storageReady]);
+  }, [proyectos, storageReady, huboCambioUsuario]);
 
   useEffect(() => {
     if (!storageReady) return;
@@ -79,6 +86,7 @@ export default function PresupuestosModule({ BASE }) {
   const activeProyecto = proyectos.find((p) => p.id === activeId);
 
   function crearProyecto(data) {
+    setHuboCambioUsuario(true);
     const np = { id: uid(), ...data, iccPct: data.iccPct || 15, items: [], creadoEn: today() };
     setProyectos((ps) => [...ps, np]);
     setActiveId(np.id);
@@ -86,10 +94,12 @@ export default function PresupuestosModule({ BASE }) {
   }
 
   function updateProyecto(id, patch) {
+    setHuboCambioUsuario(true);
     setProyectos((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }
 
   function deleteProyecto(id) {
+    setHuboCambioUsuario(true);
     setProyectos((ps) => ps.filter((p) => p.id !== id));
     if (activeId === id) {
       setActiveId(null);

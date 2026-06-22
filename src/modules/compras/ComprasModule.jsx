@@ -4,6 +4,8 @@ import { today } from "../../utils/date";
 import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
+import { useAuth } from "../../auth/AuthContext";
+import { getObras, saveRequerimientos } from "../../services/obrasRepo";
 
 const STORAGE_KEY_PROYECTOS = "choix_proyectos";
 
@@ -569,6 +571,7 @@ function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel }) {
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────
 export default function ComprasModule() {
+  const { orgId } = useAuth();
   const [proyectos, setProyectos] = useState([]);
   const [storageReady, setStorageReady] = useState(false);
   const [view, setView] = useState("obras");
@@ -581,33 +584,32 @@ export default function ComprasModule() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await storage.get(STORAGE_KEY_PROYECTOS);
-        const raw = r?.value ?? localStorage.getItem(STORAGE_KEY_PROYECTOS);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) setProyectos(parsed.filter((p) => p && p.id));
+        if (orgId) {
+          const obras = await getObras(orgId);
+          setProyectos(obras.filter((p) => p && p.id));
         }
       } catch (e) {
         console.error("Compras: error cargando proyectos", e);
       }
       setStorageReady(true);
     })();
-  }, []);
+  }, [orgId]);
 
   const activeProyecto = selectedProyecto ? proyectos.find((p) => p.id === selectedProyecto.id) ?? selectedProyecto : null;
 
   async function persistAll(updatedProyectos) {
-    try {
-      await storage.set(STORAGE_KEY_PROYECTOS, JSON.stringify(updatedProyectos));
-      localStorage.setItem("choix_proyectos", JSON.stringify(updatedProyectos));
-    } catch (e) {
-      console.error("Compras: error guardando", e);
-    }
-    setProyectos(updatedProyectos);
     const sel = selectedProyecto?.id;
+    setProyectos(updatedProyectos);
     if (sel) {
       const p = updatedProyectos.find((x) => x.id === sel);
-      if (p) setSelectedProyecto(p);
+      if (p) {
+        setSelectedProyecto(p);
+        try {
+          await saveRequerimientos(orgId, p.id, p.reqs || []);
+        } catch (e) {
+          console.error("Compras: error guardando", e);
+        }
+      }
     }
   }
 

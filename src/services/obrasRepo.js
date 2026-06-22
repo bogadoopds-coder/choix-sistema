@@ -12,15 +12,17 @@ export async function getObras(orgId) {
   const obrasSnap = await getDocs(collection(db, "orgs", orgId, "obras"));
   return Promise.all(
     obrasSnap.docs.map(async (obraDoc) => {
-      const [itemsSnap, certsSnap] = await Promise.all([
+      const [itemsSnap, certsSnap, reqsSnap] = await Promise.all([
         getDocs(collection(db, "orgs", orgId, "obras", obraDoc.id, "items")),
         getDocs(collection(db, "orgs", orgId, "obras", obraDoc.id, "certificaciones")),
+        getDocs(collection(db, "orgs", orgId, "obras", obraDoc.id, "requerimientos")),
       ]);
       return {
         id: obraDoc.id,
         ...obraDoc.data(),
         items: itemsSnap.docs.map((d) => ({ _id: d.id, ...d.data() })),
         certificaciones: certsSnap.docs.map((d) => d.data()),
+        reqs: reqsSnap.docs.map((d) => d.data()),
       };
     })
   );
@@ -108,6 +110,40 @@ export async function saveCertificaciones(orgId, obraId, certificaciones) {
     if (!id) continue;
     idsEnPantalla.add(id);
     batch.set(doc(col, id), cert);
+  }
+  for (const id of idsEnDB) {
+    if (!idsEnPantalla.has(id)) batch.delete(doc(col, id));
+  }
+  await batch.commit();
+}
+
+/**
+ * Guarda los requerimientos (reqs) de una obra en su subcoleccion,
+ * escribiendo SOLO las diferencias. Cada req trae su id; si no, se genera.
+ */
+export async function saveRequerimientos(orgId, obraId, reqs) {
+  if (!orgId || !obraId) throw new Error("saveRequerimientos: faltan orgId u obraId");
+  const col = collection(db, "orgs", orgId, "obras", obraId, "requerimientos");
+
+  const snap = await getDocs(col);
+  const idsEnDB = new Set(snap.docs.map((d) => d.id));
+  const idsEnPantalla = new Set();
+
+  let maxIdx = -1;
+  for (const id of idsEnDB) {
+    const m = /^req-(\d+)$/.exec(id);
+    if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
+  }
+
+  const batch = writeBatch(db);
+  for (const req of reqs || []) {
+    let id = req.id;
+    if (!id) {
+      maxIdx += 1;
+      id = "req-" + String(maxIdx).padStart(4, "0");
+    }
+    idsEnPantalla.add(id);
+    batch.set(doc(col, id), { ...req, id });
   }
   for (const id of idsEnDB) {
     if (!idsEnPantalla.has(id)) batch.delete(doc(col, id));

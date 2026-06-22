@@ -34,12 +34,8 @@ const NAV_ITEMS = [
   { id: "dashboard",   icon: "📊", label: "Dashboard",       sub: "Resumen general" },
   { id: "chat",        icon: "🤖", label: "Agente IA",      sub: "Asistente" },
   { id: "presupuesto", icon: "📋", label: "Presupuestos",   sub: "Obras + precios" },
-  { id: "parte",       icon: "🧾", label: "Parte Diario",   sub: "Registro diario" },
-  { id: "rfi",         icon: "❓", label: "RFIs",           sub: "Consultas técnicas" },
   { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
-  { id: "sh",          icon: "🦺", label: "SHyMA",          sub: "Seguridad e higiene" },
-  { id: "calidad",     icon: "✅", label: "Calidad",        sub: "No conformidades" },
   { id: "precios",     icon: "💲", label: "Base Precios",   sub: "948 ítems + historial" },
 ];
 

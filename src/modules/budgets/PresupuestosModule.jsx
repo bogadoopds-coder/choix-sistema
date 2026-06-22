@@ -7,7 +7,7 @@ import ProjectsList from "./ProjectsList";
 import ProjectView from "./ProjectView";
 import { GestorPrecios } from "../prices/PricesModule";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras } from "../../services/obrasRepo";
+import { getObras, saveObra, deleteObra, saveItems } from "../../services/obrasRepo";
 
 // ─── NUEVO PROYECTO ───────────────────────────────────────────────────────────
 function NuevoProyecto({ onCrear, onCancel }) {
@@ -65,6 +65,10 @@ export default function PresupuestosModule({ BASE }) {
   }, [orgId]);
 
   useEffect(() => {
+    // Desactivado: la persistencia de proyectos ahora se hace en Firestore vía el repo
+    // (saveObra/saveItems/deleteObra) dentro de crearProyecto/updateProyecto/deleteProyecto.
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!storageReady) return;
     if (!huboCambioUsuario) return;
     (async () => {
@@ -85,26 +89,31 @@ export default function PresupuestosModule({ BASE }) {
 
   const activeProyecto = proyectos.find((p) => p.id === activeId);
 
-  function crearProyecto(data) {
-    setHuboCambioUsuario(true);
+  async function crearProyecto(data) {
     const np = { id: uid(), ...data, iccPct: data.iccPct || 15, items: [], creadoEn: today() };
+    setHuboCambioUsuario(true);
     setProyectos((ps) => [...ps, np]);
     setActiveId(np.id);
     setView("proyecto");
+    try { await saveObra(orgId, np); } catch (e) { console.error("Error creando obra:", e); }
   }
 
-  function updateProyecto(id, patch) {
+  async function updateProyecto(id, patch) {
     setHuboCambioUsuario(true);
     setProyectos((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    try {
+      const actual = proyectos.find((p) => p.id === id);
+      const merged = { ...actual, ...patch };
+      await saveObra(orgId, merged);
+      if (patch.items) await saveItems(orgId, id, merged.items);
+    } catch (e) { console.error("Error guardando obra:", e); }
   }
 
-  function deleteProyecto(id) {
+  async function deleteProyecto(id) {
     setHuboCambioUsuario(true);
     setProyectos((ps) => ps.filter((p) => p.id !== id));
-    if (activeId === id) {
-      setActiveId(null);
-      setView("lista");
-    }
+    if (activeId === id) { setActiveId(null); setView("lista"); }
+    try { await deleteObra(orgId, id); } catch (e) { console.error("Error borrando obra:", e); }
   }
 
   if (!storageReady)

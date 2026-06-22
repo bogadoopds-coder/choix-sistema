@@ -88,3 +88,29 @@ export async function saveItems(orgId, obraId, items) {
 
   await batch.commit();
 }
+
+/**
+ * Guarda las certificaciones de una obra escribiendo SOLO las diferencias.
+ * Las certificaciones ya traen su propio id (CERT-XXXXXX), que se usa como id
+ * de documento. Cada cert lleva sus items[] embebidos (igual que el schema).
+ */
+export async function saveCertificaciones(orgId, obraId, certificaciones) {
+  if (!orgId || !obraId) throw new Error("saveCertificaciones: faltan orgId u obraId");
+  const col = collection(db, "orgs", orgId, "obras", obraId, "certificaciones");
+
+  const snap = await getDocs(col);
+  const idsEnDB = new Set(snap.docs.map((d) => d.id));
+  const idsEnPantalla = new Set();
+
+  const batch = writeBatch(db);
+  for (const cert of certificaciones || []) {
+    const id = cert.id;
+    if (!id) continue;
+    idsEnPantalla.add(id);
+    batch.set(doc(col, id), cert);
+  }
+  for (const id of idsEnDB) {
+    if (!idsEnPantalla.has(id)) batch.delete(doc(col, id));
+  }
+  await batch.commit();
+}

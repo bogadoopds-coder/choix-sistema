@@ -8,7 +8,6 @@ import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras, saveCertificaciones } from "../../services/obrasRepo";
 
-const STORAGE_KEY_PROYECTOS = "choix_proyectos";
 const STORAGE_KEY_PRECIOS = "choix_precios";
 
 const ESTADOS = ["borrador", "presentado", "aprobado", "cobrado"];

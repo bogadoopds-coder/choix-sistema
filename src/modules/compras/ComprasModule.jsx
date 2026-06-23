@@ -7,7 +7,6 @@ import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras, saveRequerimientos } from "../../services/obrasRepo";
 
-const STORAGE_KEY_PROYECTOS = "choix_proyectos";
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
 

@@ -4,6 +4,8 @@ import { today } from "../../utils/date";
 import { precioVigente } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
+import { useAuth } from "../../auth/AuthContext";
+import { getPrecios, savePrecios } from "../../services/obrasRepo";
 
 // ─── GESTOR DE PRECIOS ────────────────────────────────────────────────────────
 export function GestorPrecios({ preciosActualizados, setPreciosActualizados, BASE }) {
@@ -170,25 +172,28 @@ export function GestorPrecios({ preciosActualizados, setPreciosActualizados, BAS
 
 // ─── STANDALONE WRAPPER (Base Precios screen from sidebar) ─────────────────────
 export function PresupuestosModulePrecios({ BASE }) {
+  const { orgId } = useAuth();
   const [pa, setPa] = useState({});
   const [ready, setReady] = useState(false);
   useEffect(() => {
     (async () => {
       try {
-        const r = await storage.get("choix_precios");
-        if (r?.value) setPa(JSON.parse(r.value));
+        if (orgId) {
+          const precios = await getPrecios(orgId);
+          setPa(precios);
+        }
       } catch {}
       setReady(true);
     })();
-  }, []);
+  }, [orgId]);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !orgId) return;
     (async () => {
       try {
-        await storage.set("choix_precios", JSON.stringify(pa));
+        await savePrecios(orgId, pa);
       } catch {}
     })();
-  }, [pa, ready]);
+  }, [pa, ready, orgId]);
   if (!ready) return <div style={{ padding: "40px", textAlign: "center", color: COLORS.muted }}>Cargando...</div>;
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "16px", background: COLORS.bg }}>

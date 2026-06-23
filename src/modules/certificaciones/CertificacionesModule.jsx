@@ -6,7 +6,7 @@ import { precioVigente } from "../../utils/budgets";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveCertificaciones } from "../../services/obrasRepo";
+import { getObras, saveCertificaciones, getPrecios } from "../../services/obrasRepo";
 
 const STORAGE_KEY_PRECIOS = "choix_precios";
 
@@ -365,10 +365,9 @@ export default function CertificacionesModule({ BASE }) {
         console.error("Error cargando proyectos:", e);
       }
       try {
-        const r2 = await storage.get(STORAGE_KEY_PRECIOS);
-        if (r2?.value) {
-          const parsed = JSON.parse(r2.value);
-          if (parsed && typeof parsed === "object") setPreciosActualizados(parsed);
+        if (orgId) {
+          const precios = await getPrecios(orgId);
+          setPreciosActualizados(precios);
         }
       } catch {}
       setStorageReady(true);

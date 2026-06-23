@@ -4,7 +4,7 @@ import { precioVigente } from "../../utils/budgets";
 import { RUBROS_MAP } from "../budgets/utils/parseUtils";
 import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras } from "../../services/obrasRepo";
+import { getObras, getPrecios } from "../../services/obrasRepo";
 
 const ars = (n) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 
@@ -55,9 +55,10 @@ export default function DashboardModule() {
         }
       } catch {}
       try {
-        let pr = await storage.get("choix_precios_actualizados");
-        if (!pr?.value) pr = await storage.get("choix_precios");
-        if (pr?.value) setPreciosActualizados(JSON.parse(pr.value));
+        if (orgId) {
+          const precios = await getPrecios(orgId);
+          setPreciosActualizados(precios);
+        }
       } catch {}
     })();
   }, [orgId]);

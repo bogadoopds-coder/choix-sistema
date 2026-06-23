@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 
 /**
@@ -149,4 +149,22 @@ export async function saveRequerimientos(orgId, obraId, reqs) {
     if (!idsEnPantalla.has(id)) batch.delete(doc(col, id));
   }
   await batch.commit();
+}
+
+/**
+ * Lee los precios (overrides manuales) de una org desde
+ * orgs/{orgId}/config/precios. Devuelve {} si no existe.
+ */
+export async function getPrecios(orgId) {
+  if (!orgId) return {};
+  const snap = await getDoc(doc(db, "orgs", orgId, "config", "precios"));
+  return snap.exists() ? (snap.data().valores || {}) : {};
+}
+
+/**
+ * Guarda los precios (overrides) de una org en orgs/{orgId}/config/precios.
+ */
+export async function savePrecios(orgId, precios) {
+  if (!orgId) throw new Error("savePrecios: falta orgId");
+  await setDoc(doc(db, "orgs", orgId, "config", "precios"), { valores: precios || {} });
 }

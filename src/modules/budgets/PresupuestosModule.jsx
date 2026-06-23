@@ -7,7 +7,7 @@ import ProjectsList from "./ProjectsList";
 import ProjectView from "./ProjectView";
 import { GestorPrecios } from "../prices/PricesModule";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveObra, deleteObra, saveItems } from "../../services/obrasRepo";
+import { getObras, saveObra, deleteObra, saveItems, getPrecios, savePrecios } from "../../services/obrasRepo";
 
 // ─── NUEVO PROYECTO ───────────────────────────────────────────────────────────
 function NuevoProyecto({ codigoSugerido, onCrear, onCancel }) {
@@ -62,8 +62,10 @@ export default function PresupuestosModule({ BASE }) {
         }
       } catch {}
       try {
-        const r2 = await storage.get("choix_precios");
-        if (r2?.value) setPreciosActualizados(JSON.parse(r2.value));
+        if (orgId) {
+          const precios = await getPrecios(orgId);
+          setPreciosActualizados(precios);
+        }
       } catch {}
       setStorageReady(true);
     })();
@@ -84,13 +86,13 @@ export default function PresupuestosModule({ BASE }) {
   }, [proyectos, storageReady, huboCambioUsuario]);
 
   useEffect(() => {
-    if (!storageReady) return;
+    if (!storageReady || !orgId) return;
     (async () => {
       try {
-        await storage.set("choix_precios", JSON.stringify(preciosActualizados));
+        await savePrecios(orgId, preciosActualizados);
       } catch {}
     })();
-  }, [preciosActualizados, storageReady]);
+  }, [preciosActualizados, storageReady, orgId]);
 
   const activeProyecto = proyectos.find((p) => p.id === activeId);
 

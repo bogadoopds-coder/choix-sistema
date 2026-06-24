@@ -6,13 +6,9 @@ import { precioVigente, semaforo } from "../../../utils/budgets";
 import { COLORS, S } from "../../../styles/theme";
 import { flattenWithHeaders, formatPrecioARS } from "../utils/parseUtils";
 import { UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
-import {
-  getUocraRates,
-  setUocraRates as persistUocraRates,
-  getRendimientosAprendidos,
-  upsertRendimientosAprendidos,
-  normalizeRendimientosDescKey,
-} from "../../../services/storage";
+import { normalizeRendimientosDescKey } from "../../../services/storage";
+import { useAuth } from "../../../auth/AuthContext";
+import { getUocraRates, saveUocraRates, getRendimientos, upsertRendimientos } from "../../../services/obrasRepo";
 
 /** MO UOCRA por ítem (solo oficial + ayudante, con ICC), mismo criterio que el resumen. */
 function moUocraItemOficialAyudanteIcc(item, rates, iccPct) {
@@ -169,6 +165,7 @@ const SubrubroHeader = ({ data }) => (
 );
 
 export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, updateProyecto, removeItem, preciosActualizados, BASE }) {
+  const { orgId } = useAuth();
   const [search, setSearch] = useState("");
   const [showSelector, setShowSelector] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
@@ -190,7 +187,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rates = await getUocraRates();
+      const rates = await getUocraRates(orgId);
       if (!cancelled) setUocraRates(rates);
     })();
     return () => {
@@ -332,7 +329,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
 
   async function guardarUocraModal() {
     try {
-      const merged = await persistUocraRates({
+      const merged = await saveUocraRates(orgId, {
         vigencia: String(uocraForm.vigencia ?? "").trim() || UOCRA_RATES_DEFAULT.vigencia,
         zona: String(uocraForm.zona ?? "").trim() || UOCRA_RATES_DEFAULT.zona,
         oficial_hora: Number(uocraForm.oficial_hora) || 0,
@@ -357,7 +354,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     }
     setSugRendLoading(true);
     try {
-      const baseCentral = await getRendimientosAprendidos();
+      const baseCentral = await getRendimientos(orgId);
       let workingItems = (proyecto.items || []).map((i) => ({ ...i }));
       let aplicadosDesdeBase = 0;
       for (let idx = 0; idx < workingItems.length; idx++) {
@@ -487,7 +484,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     }
     try {
       if (Object.keys(nuevosParaBase).length > 0) {
-        await upsertRendimientosAprendidos(nuevosParaBase);
+        await upsertRendimientos(orgId, nuevosParaBase);
         console.log(`Guardando en base centralizada: ${Object.keys(nuevosParaBase).length} rendimientos`);
       }
     } catch (e) {

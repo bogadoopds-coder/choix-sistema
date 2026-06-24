@@ -235,3 +235,49 @@ export async function crearOrdenCompra(orgId, obraId, orden) {
   await setDoc(doc(col, id), { ...orden, id });
   return id;
 }
+
+// ─── UOCRA (tarifas de mano de obra por org) ───────────────────────────────
+import { mergeUocraRates } from "../data/uocraRates";
+
+/** Lee tarifas UOCRA de orgs/{orgId}/config/uocra (con defaults aplicados). */
+export async function getUocraRates(orgId) {
+  if (!orgId) return mergeUocraRates({});
+  try {
+    const snap = await getDoc(doc(db, "orgs", orgId, "config", "uocra"));
+    if (!snap.exists()) return mergeUocraRates({});
+    return mergeUocraRates(snap.data() || {});
+  } catch {
+    return mergeUocraRates({});
+  }
+}
+
+/** Guarda tarifas UOCRA en orgs/{orgId}/config/uocra. Devuelve lo guardado. */
+export async function saveUocraRates(orgId, rates) {
+  if (!orgId) throw new Error("saveUocraRates: falta orgId");
+  const merged = mergeUocraRates(rates);
+  await setDoc(doc(db, "orgs", orgId, "config", "uocra"), merged);
+  return merged;
+}
+
+// ─── Rendimientos aprendidos (por org) ───e orgs/{orgId}/config/rendimientos. */
+export async function getRendimientos(orgId) {
+  if (!orgId) return {};
+  try {
+    const snap = await getDoc(doc(db, "orgs", orgId, "config", "rendimientos"));
+    if (!snap.exists()) return {};
+    const data = snap.data();
+    const base = data && data.valores;
+    return (typeof base === "object" && base !== null && !Array.isArray(base)) ? base : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Mezcla rendimientos nuevos sobre la base de la org y persiste. Devuelve el merge. */
+export async function upsertRendimientos(orgId, nuevos) {
+  if (!orgId) throw new Error("upsertRendimientos: falta orgId");
+  const actual = await getRendimientos(orgId);
+  const merged = { ...actual, ...(typeof nuevos === "object" && nuevos !== null ? nuevos : {}) };
+  await setDoc(doc(db, "orgs", orgId, "config", "rendimientos"), { valores: merged });
+  return merged;
+}

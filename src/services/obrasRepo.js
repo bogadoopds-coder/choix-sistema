@@ -207,3 +207,31 @@ export async function deleteProveedor(orgId, provId) {
   if (!orgId || !provId) throw new Error("deleteProveedor: faltan orgId u provId");
   await deleteDoc(doc(db, "orgs", orgId, "proveedores", provId));
 }
+
+/**
+ * Lee las órdenes de compra de una obra.
+ * orgs/{orgId}/obras/{obraId}/ordenesCompra/{ocId}
+ */
+export async function getOrdenesCompra(orgId, obraId) {
+  if (!orgId || !obraId) return [];
+  const snap = await getDocs(collection(db, "orgs", orgId, "obras", obraId, "ordenesCompra"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Crea una orden de compra nueva (genera OC-XXX) y devuelve su id.
+ * orden: { reqId, reqNumero, proveedorId, proveedorNombre, fecha, estado, items[] }
+ */
+export async function crearOrdenCompra(orgId, obraId, orden) {
+  if (!orgId || !obraId) throw new Error("crearOrdenCompra: faltan orgId u obraId");
+  const col = collection(db, "orgs", orgId, "obras", obraId, "ordenesCompra");
+  const snap = await getDocs(col);
+  let max = -1;
+  for (const d of snap.docs) {
+    const m = /^OC-(\d+)$/.exec(d.id);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  const id = "OC-" + String(max + 1).padStart(3, "0");
+  await setDoc(doc(col, id), { ...orden, id });
+  return id;
+}

@@ -5,7 +5,7 @@ import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor } from "../../services/obrasRepo";
+import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra } from "../../services/obrasRepo";
 
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
@@ -287,6 +287,7 @@ function ListaObras({ proyectos, onSelect }) {
 // ─── Lista de REQs + barra ────────────────────────────────────────────────────
 function ListaReqs({
   proyecto,
+  ordenesCompra,
   onBack,
   onNewReq,
   aiLoading,
@@ -407,6 +408,7 @@ function ListaReqs({
                             <th style={{ padding: "4px 6px", fontWeight: 600, textAlign: "right" }}>Cant.</th>
                             <th style={{ padding: "4px 6px", fontWeight: 600 }}>Unidad</th>
                             <th style={{ padding: "4px 6px", fontWeight: 600 }}>Urgencia</th>
+                            <th style={{ padding: "4px 6px", fontWeight: 600 }}>Estado</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -417,6 +419,13 @@ function ListaReqs({
                               <td style={{ padding: "4px 6px", textAlign: "right" }}>{it.cantSolicitada ?? "—"}</td>
                               <td style={{ padding: "4px 6px" }}>{it.um || "—"}</td>
                               <td style={{ padding: "4px 6px" }}>{it.urgencia || "—"}</td>
+                              <td style={{ padding: "4px 6px" }}>
+                                {it.ocCodigo ? (
+                                  <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(93,202,165,0.15)", color: "#5dcaa5" }}>{it.ocCodigo}</span>
+                                ) : (
+                                  <span style={{ fontSize: "10px", color: COLORS.muted }}>suelto</span>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -737,6 +746,7 @@ export default function ComprasModule() {
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [seccion, setSeccion] = useState("compras");
+  const [ordenesCompra, setOrdenesCompra] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -770,12 +780,19 @@ export default function ComprasModule() {
     }
   }
 
-  function handleSelectObra(p) {
+  async function handleSelectObra(p) {
     setSelectedProyecto(p);
     setView("reqs");
     setShowFormReq(false);
     setAiAnalysis(null);
     setAiError(null);
+    try {
+      const ocs = await getOrdenesCompra(orgId, p.id);
+      setOrdenesCompra(ocs);
+    } catch (e) {
+      console.error("Compras: error cargando órdenes", e);
+      setOrdenesCompra([]);
+    }
   }
 
   function nextReqNumero(p) {
@@ -880,6 +897,7 @@ export default function ComprasModule() {
         {view === "reqs" && activeProyecto && (
           <ListaReqs
             proyecto={activeProyecto}
+            ordenesCompra={ordenesCompra}
             onBack={() => {
               setView("obras");
               setSelectedProyecto(null);

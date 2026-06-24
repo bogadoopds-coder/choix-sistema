@@ -297,6 +297,7 @@ function ListaReqs({
   children,
 }) {
   const reqs = (proyecto.reqs || []).slice().sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0));
+  const [expandidoId, setExpandidoId] = useState(null);
 
   return (
     <div>
@@ -362,10 +363,15 @@ function ListaReqs({
             const badge = ESTADO_BADGE[r.estado] || ESTADO_BADGE.pendiente;
             const nItems = Array.isArray(r.items) ? r.items.length : 0;
             const obs = (r.observaciones || "").trim();
+            const abierto = expandidoId === r.id;
             return (
               <div key={r.id} style={{ ...S.panel, display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+                <div
+                  onClick={() => setExpandidoId(abierto ? null : r.id)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", cursor: "pointer" }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                    <span style={{ color: COLORS.muted, fontSize: "12px" }}>{abierto ? "▼" : "▶"}</span>
                     <span style={{ fontWeight: 800, color: COLORS.gold, fontSize: "14px" }}>REQ N° {r.numero}</span>
                     <span style={{ color: COLORS.muted, fontSize: "12px" }}>{r.fecha}</span>
                     <span style={{ color: COLORS.text, fontSize: "12px" }}>Jefe: {r.jefeObra || "—"}</span>
@@ -388,6 +394,36 @@ function ListaReqs({
                 {obs ? (
                   <div style={{ fontSize: "11px", color: COLORS.muted, lineHeight: 1.45 }}>{obs.length > 200 ? `${obs.slice(0, 200)}…` : obs}</div>
                 ) : null}
+                {abierto && (
+                  <div style={{ marginTop: "4px", borderTop: `1px solid ${COLORS.border || "#2a3f34"}`, paddingTop: "8px" }}>
+                    {nItems === 0 ? (
+                      <div style={{ color: COLORS.muted, fontSize: "11px" }}>Este requerimiento no tiene ítems cargados.</div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                        <thead>
+                          <tr style={{ color: COLORS.muted, textAlign: "left" }}>
+                            <th style={{ padding: "4px 6px", fontWeight: 600 }}>Código</th>
+                            <th style={{ padding: "4px 6px", fontWeight: 600 }}>Descripción</th>
+                            <th style={{ padding: "4px 6px", fontWeight: 600, textAlign: "right" }}>Cant.</th>
+                            <th style={{ padding: "4px 6px", fontWeight: 600 }}>Unidad</th>
+                            <th style={{ padding: "4px 6px", fontWeight: 600 }}>Urgencia</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {r.items.map((it, idx) => (
+                            <tr key={idx} style={{ borderTop: `1px solid ${COLORS.border || "#2a3f34"}`, color: COLORS.text }}>
+                              <td style={{ padding: "4px 6px" }}>{it.codigo || "—"}</td>
+                              <td style={{ padding: "4px 6px" }}>{it.desc || "—"}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{it.cantSolicitada ?? "—"}</td>
+                              <td style={{ padding: "4px 6px" }}>{it.um || "—"}</td>
+                              <td style={{ padding: "4px 6px" }}>{it.urgencia || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -5,7 +5,7 @@ import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveRequerimientos } from "../../services/obrasRepo";
+import { getObras, saveRequerimientos, getProveedores, saveProveedor } from "../../services/obrasRepo";
 
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
@@ -568,6 +568,93 @@ function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel }) {
   );
 }
 
+function SeccionProveedores({ orgId }) {
+  const [proveedores, setProveedores] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [form, setForm] = useState({ nombre: "", cuit: "", telefono: "", email: "" });
+  const [guardando, setGuardando] = useState(false);
+
+  async function cargar() {
+    try {
+      const lista = await getProveedores(orgId);
+      setProveedores(lista);
+    } catch (e) {
+      console.error("Error cargando proveedores:", e);
+    }
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    if (orgId) cargar();
+  }, [orgId]);
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const puedeGuardar = form.nombre.trim().length > 0;
+
+  async function handleGuardar() {
+    if (!puedeGuardar) return;
+    setGuardando(true);
+    try {
+      await saveProveedor(orgId, { ...form });
+      setForm({ nombre: "", cuit: "", telefono: "", email: "" });
+      await cargar();
+    } catch (e) {
+      console.error("Error guardando proveedor:", e);
+    }
+    setGuardando(false);
+  }
+
+  return (
+    <div>
+      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "16px", fontSize: "14px" }}>🏪 PROVEEDORES</div>
+
+      <div style={{ ...S.panel, marginBottom: "16px", maxWidth: "640px" }}>
+        <div style={{ fontWeight: 700, color: COLORS.text, marginBottom: "12px", fontSize: "12px" }}>Nuevo proveedor</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+          <div>
+            <label style={S.label}>Nombre / Razón social</label>
+            <input style={S.input} value={form.nombre} onChange={(e) => set("nombre", e.target.value)} />
+          </div>
+          <div>
+            <label style={S.label}>CUIT</label>
+            <input style={S.input} value={form.cuit} onChange={(e) => set("cuit", e.target.value)} />
+          </div>
+          <div>
+            <label style={S.label}>Teléfono</label>
+            <input style={S.input} value={form.telefono} onChange={(e) => set("telefono", e.target.value)} />
+          </div>
+          <div>
+            <label style={S.label}>Email</label>
+            <input style={S.input} value={form.email} onChange={(e) => set("email", e.target.value)} />
+          </div>
+        </div>
+        <button style={{ ...S.btn(), marginTop: "12px", opacity: puedeGuardar && !guardando ? 1 : 0.5 }} disabled={!puedeGuardar || guardando} onClick={handleGuardar}>
+          {guardando ? "Guardando..." : "+ Agregar proveedor"}
+        </button>
+      </div>
+
+      {cargando ? (
+        <div style={{ color: COLORS.muted, fontSize: "12px" }}>Cargando proveedores...</div>
+      ) : proveedores.length === 0 ? (
+        <div style={{ ...S.panel, textAlign: "center", color: COLORS.muted, padding: "30px" }}>Aún no hay proveedores cargados.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {proveedores.map((p) => (
+            <div key={p.id} style={{ ...S.panel, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <div>
+                <div style={{ fontWeight: 700, color: COLORS.text, fontSize: "13px" }}>{p.nombre}</div>
+                <div style={{ color: COLORS.muted, fontSize: "11px" }}>
+                  {p.cuit ? `CUIT ${p.cuit}` : "Sin CUIT"} · {p.telefono || "Sin tel."} · {p.email || "Sin email"}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN ───────────────────────────────────────────────────────────────────
 export default function ComprasModule() {
   const { orgId } = useAuth();
@@ -579,6 +666,7 @@ export default function ComprasModule() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiError, setAiError] = useState(null);
+  const [seccion, setSeccion] = useState("compras");
 
   useEffect(() => {
     (async () => {
@@ -696,6 +784,22 @@ export default function ComprasModule() {
   return (
     <div style={{ ...S.app, height: "100%", overflow: "auto" }}>
       <div style={{ padding: "16px", maxWidth: "1100px", margin: "0 auto" }}>
+        <div style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: `1px solid ${COLORS.border || "#2a3f34"}`, paddingBottom: "8px" }}>
+          <button
+            onClick={() => setSeccion("compras")}
+            style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: seccion === "compras" ? 700 : 400, color: seccion === "compras" ? COLORS.gold : COLORS.muted, padding: "4px 8px" }}
+          >
+            📦 Compras
+          </button>
+          <button
+            onClick={() => setSeccion("proveedores")}
+            style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: seccion === "proveedores" ? 700 : 400, color: seccion === "proveedores" ? COLORS.gold : COLORS.muted, padding: "4px 8px" }}
+          >
+            🏪 Proveedores
+          </button>
+        </div>
+        {seccion === "compras" && (
+          <>
         {view === "obras" && (
           <>
             <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "16px", fontSize: "14px" }}>📦 REQUERIMIENTOS Y COMPRAS</div>
@@ -733,6 +837,9 @@ export default function ComprasModule() {
             )}
           </ListaReqs>
         )}
+          </>
+        )}
+        {seccion === "proveedores" && <SeccionProveedores orgId={orgId} />}
       </div>
     </div>
   );

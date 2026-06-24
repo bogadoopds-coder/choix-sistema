@@ -168,3 +168,42 @@ export async function savePrecios(orgId, precios) {
   if (!orgId) throw new Error("savePrecios: falta orgId");
   await setDoc(doc(db, "orgs", orgId, "config", "precios"), { valores: precios || {} });
 }
+
+/**
+ * Lee los proveedores de una org (compartidos entre todas las obras).
+ * orgs/{orgId}/proveedores/{provId}
+ */
+export async function getProveedores(orgId) {
+  if (!orgId) return [];
+  const snap = await getDocs(collection(db, "orgs", orgId, "proveedores"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Crea o actualiza un proveedor. Si el proveedor trae id, lo actualiza;
+ * si no, genera uno nuevo (prov-XXXX).
+ */
+export async function saveProveedor(orgId, proveedor) {
+  if (!orgId) throw new Error("saveProveedor: falta orgId");
+  let id = proveedor.id;
+  if (!id) {
+    const snap = await getDocs(collection(db, "orgs", orgId, "proveedores"));
+    let max = -1;
+    for (const d of snap.docs) {
+      const m = /^prov-(\d+)$/.exec(d.id);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    id = "prov-" + String(max + 1).padStart(4, "0");
+  }
+  const { id: _omit, ...data } = proveedor;
+  await setDoc(doc(db, "orgs", orgId, "proveedores", id), data, { merge: true });
+  return id;
+}
+
+/**
+ * Elimina un proveedor.
+ */
+export async function deleteProveedor(orgId, provId) {
+  if (!orgId || !provId) throw new Error("deleteProveedor: faltan orgId u provId");
+  await deleteDoc(doc(db, "orgs", orgId, "proveedores", provId));
+}

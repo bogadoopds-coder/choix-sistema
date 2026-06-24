@@ -363,6 +363,7 @@ function ListaReqs({
   ordenesCompra,
   proveedores,
   onCrearOrden,
+  BASE,
   onBack,
   onNewReq,
   aiLoading,
@@ -519,7 +520,7 @@ function ListaReqs({
 }
 
 // ─── Formulario nuevo REQ ─────────────────────────────────────────────────────
-function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel }) {
+function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel, BASE = [] }) {
   const [fecha, setFecha] = useState(today());
   const [jefeObra, setJefeObra] = useState("");
   const [observaciones, setObservaciones] = useState("");
@@ -811,7 +812,7 @@ function SeccionProveedores({ orgId }) {
 }
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────
-export default function ComprasModule() {
+export default function ComprasModule({ BASE = [] }) {
   const { orgId } = useAuth();
   const [proyectos, setProyectos] = useState([]);
   const [storageReady, setStorageReady] = useState(false);
@@ -1034,6 +1035,7 @@ export default function ComprasModule() {
             ordenesCompra={ordenesCompra}
             proveedores={proveedores}
             onCrearOrden={handleCrearOrden}
+            BASE={BASE}
             onBack={() => {
               setView("obras");
               setSelectedProyecto(null);
@@ -1057,6 +1059,7 @@ export default function ComprasModule() {
                 nextNumero={nextReqNumero(activeProyecto)}
                 onSave={handleSaveReq}
                 onCancel={() => setShowFormReq(false)}
+                BASE={BASE}
               />
             )}
           </ListaReqs>

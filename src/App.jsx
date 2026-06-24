@@ -139,7 +139,7 @@ function PraxiaApp() {
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule BASE={BASE} />}
           {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}
-          {activeModule === "compras" && <ComprasModule />}
+          {activeModule === "compras" && <ComprasModule BASE={BASE} />}
           {activeModule === "precios" && <PresupuestosModulePrecios BASE={BASE} />}
         </div>
       </div>

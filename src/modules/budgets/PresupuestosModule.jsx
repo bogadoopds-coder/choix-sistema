@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { today } from "../../utils/date";
 import { uid } from "../../utils/id";
 import { COLORS, S } from "../../styles/theme";
-import { storage } from "../../services/storage";
 import ProjectsList from "./ProjectsList";
 import ProjectView from "./ProjectView";
 import { GestorPrecios } from "../prices/PricesModule";
@@ -51,7 +50,6 @@ export default function PresupuestosModule({ BASE }) {
   const [view, setView] = useState("lista");
   const [storageReady, setStorageReady] = useState(false);
   const [preciosActualizados, setPreciosActualizados] = useState({});
-  const [huboCambioUsuario, setHuboCambioUsuario] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -70,20 +68,6 @@ export default function PresupuestosModule({ BASE }) {
       setStorageReady(true);
     })();
   }, [orgId]);
-
-  useEffect(() => {
-    // Desactivado: la persistencia de proyectos ahora se hace en Firestore vía el repo
-    // (saveObra/saveItems/deleteObra) dentro de crearProyecto/updateProyecto/deleteProyecto.
-    return;
-    // eslint-disable-next-line no-unreachable
-    if (!storageReady) return;
-    if (!huboCambioUsuario) return;
-    (async () => {
-      try {
-        await storage.set("choix_proyectos", JSON.stringify(proyectos));
-      } catch {}
-    })();
-  }, [proyectos, storageReady, huboCambioUsuario]);
 
   useEffect(() => {
     if (!storageReady || !orgId) return;
@@ -107,7 +91,6 @@ export default function PresupuestosModule({ BASE }) {
 
   async function crearProyecto(data) {
     const np = { id: uid(), ...data, iccPct: data.iccPct || 15, items: [], creadoEn: today() };
-    setHuboCambioUsuario(true);
     setProyectos((ps) => [...ps, np]);
     setActiveId(np.id);
     setView("proyecto");
@@ -115,7 +98,6 @@ export default function PresupuestosModule({ BASE }) {
   }
 
   async function updateProyecto(id, patch) {
-    setHuboCambioUsuario(true);
     setProyectos((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
     try {
       const actual = proyectos.find((p) => p.id === id);
@@ -126,7 +108,6 @@ export default function PresupuestosModule({ BASE }) {
   }
 
   async function deleteProyecto(id) {
-    setHuboCambioUsuario(true);
     setProyectos((ps) => ps.filter((p) => p.id !== id));
     if (activeId === id) { setActiveId(null); setView("lista"); }
     try { await deleteObra(orgId, id); } catch (e) { console.error("Error borrando obra:", e); }

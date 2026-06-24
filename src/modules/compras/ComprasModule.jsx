@@ -256,6 +256,8 @@ function emptyLineItem() {
     id: uid(),
     esExcepcion: false,
     codigoPresupuesto: "",
+    busqueda: "",
+    descMostrada: "",
     descLibre: "",
     umLibre: "UN",
     cantSolicitada: 1,
@@ -559,10 +561,10 @@ function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel, BASE = [] 
         });
       } else {
         if (!li.codigoPresupuesto) continue;
-        const pi = itemsPresup.find((x) => x.codigo === li.codigoPresupuesto);
+        const pi = BASE.find((x) => x.codigo === li.codigoPresupuesto);
         normalized.push({
           codigo: pi?.codigo ?? li.codigoPresupuesto,
-          desc: pi?.desc ?? "",
+          desc: pi?.desc ?? li.descMostrada ?? "",
           um: pi?.um ?? "UN",
           cantSolicitada: cant,
           urgencia: li.urgencia,
@@ -641,16 +643,45 @@ function FormularioNuevoReq({ proyecto, nextNumero, onSave, onCancel, BASE = [] 
               </div>
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
-                <div style={{ flex: 2, minWidth: "200px" }}>
-                  <label style={S.label}>Ítem del presupuesto</label>
-                  <select style={S.input} value={li.codigoPresupuesto} onChange={(e) => updateLine(li.id, { codigoPresupuesto: e.target.value })}>
-                    <option value="">Elegir…</option>
-                    {itemsPresup.map((it) => (
-                      <option key={it.codigo} value={it.codigo}>
-                        {it.codigo} — {it.desc ?? ""}
-                      </option>
-                    ))}
-                  </select>
+                <div style={{ flex: 2, minWidth: "240px", position: "relative" }}>
+                  <label style={S.label}>Material</label>
+                  {li.codigoPresupuesto ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", ...S.input }}>
+                      <span style={{ flex: 1, fontSize: "11px", color: COLORS.text }}>{li.codigoPresupuesto} — {li.descMostrada}</span>
+                      <button type="button" style={{ background: "transparent", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "14px" }} onClick={() => updateLine(li.id, { codigoPresupuesto: "", descMostrada: "", busqueda: "" })}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        style={S.input}
+                        value={li.busqueda}
+                        onChange={(e) => updateLine(li.id, { busqueda: e.target.value })}
+                        placeholder="Buscar material (ej: cemento)…"
+                      />
+                      {li.busqueda.trim().length >= 2 && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: "6px", maxHeight: "200px", overflowY: "auto", marginTop: "2px" }}>
+                          {BASE.filter((b) => {
+                            const q = li.busqueda.toLowerCase();
+                            return b.desc.toLowerCase().includes(q) || b.codigo.includes(q);
+                          }).slice(0, 15).map((b) => (
+                            <div
+                              key={b.codigo}
+                              onClick={() => updateLine(li.id, { codigoPresupuesto: b.codigo, descMostrada: b.desc, busqueda: "" })}
+                              style={{ padding: "6px 10px", cursor: "pointer", fontSize: "11px", color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` }}
+                            >
+                              <span style={{ color: COLORS.muted }}>{b.codigo}</span> — {b.desc}
+                            </div>
+                          ))}
+                          {BASE.filter((b) => {
+                            const q = li.busqueda.toLowerCase();
+                            return b.desc.toLowerCase().includes(q) || b.codigo.includes(q);
+                          }).length === 0 && (
+                            <div style={{ padding: "6px 10px", fontSize: "11px", color: COLORS.muted }}>Sin resultados. Usá "Excepción" para texto libre.</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div style={{ width: "100px" }}>
                   <label style={S.label}>Cantidad</label>

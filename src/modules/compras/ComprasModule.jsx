@@ -5,7 +5,7 @@ import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveRequerimientos, getProveedores, saveProveedor } from "../../services/obrasRepo";
+import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor } from "../../services/obrasRepo";
 
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
@@ -572,6 +572,7 @@ function SeccionProveedores({ orgId }) {
   const [proveedores, setProveedores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [form, setForm] = useState({ nombre: "", cuit: "", telefono: "", email: "" });
+  const [editandoId, setEditandoId] = useState(null);
   const [guardando, setGuardando] = useState(false);
 
   async function cargar() {
@@ -591,12 +592,18 @@ function SeccionProveedores({ orgId }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const puedeGuardar = form.nombre.trim().length > 0;
 
+  function limpiarForm() {
+    setForm({ nombre: "", cuit: "", telefono: "", email: "" });
+    setEditandoId(null);
+  }
+
   async function handleGuardar() {
     if (!puedeGuardar) return;
     setGuardando(true);
     try {
-      await saveProveedor(orgId, { ...form });
-      setForm({ nombre: "", cuit: "", telefono: "", email: "" });
+      const payload = editandoId ? { ...form, id: editandoId } : { ...form };
+      await saveProveedor(orgId, payload);
+      limpiarForm();
       await cargar();
     } catch (e) {
       console.error("Error guardando proveedor:", e);
@@ -604,12 +611,30 @@ function SeccionProveedores({ orgId }) {
     setGuardando(false);
   }
 
+  function handleEditar(p) {
+    setForm({ nombre: p.nombre || "", cuit: p.cuit || "", telefono: p.telefono || "", email: p.email || "" });
+    setEditandoId(p.id);
+  }
+
+  async function handleEliminar(p) {
+    if (!window.confirm(`¿Eliminar el proveedor "${p.nombre}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await deleteProveedor(orgId, p.id);
+      if (editandoId === p.id) limpiarForm();
+      await cargar();
+    } catch (e) {
+      console.error("Error eliminando proveedor:", e);
+    }
+  }
+
   return (
     <div>
       <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "16px", fontSize: "14px" }}>🏪 PROVEEDORES</div>
 
       <div style={{ ...S.panel, marginBottom: "16px", maxWidth: "640px" }}>
-        <div style={{ fontWeight: 700, color: COLORS.text, marginBottom: "12px", fontSize: "12px" }}>Nuevo proveedor</div>
+        <div style={{ fontWeight: 700, color: COLORS.text, marginBottom: "12px", fontSize: "12px" }}>
+          {editandoId ? "Editar proveedor" : "Nuevo proveedor"}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           <div>
             <label style={S.label}>Nombre / Razón social</label>
@@ -628,9 +653,14 @@ function SeccionProveedores({ orgId }) {
             <input style={S.input} value={form.email} onChange={(e) => set("email", e.target.value)} />
           </div>
         </div>
-        <button style={{ ...S.btn(), marginTop: "12px", opacity: puedeGuardar && !guardando ? 1 : 0.5 }} disabled={!puedeGuardar || guardando} onClick={handleGuardar}>
-          {guardando ? "Guardando..." : "+ Agregar proveedor"}
-        </button>
+        <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+          <button style={{ ...S.btn(), opacity: puedeGuardar && !guardando ? 1 : 0.5 }} disabled={!puedeGuardar || guardando} onClick={handleGuardar}>
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "+ Agregar proveedor"}
+          </button>
+          {editandoId && (
+            <button style={{ ...S.btn("", false) }} onClick={limpiarForm}>Cancelar</button>
+          )}
+        </div>
       </div>
 
       {cargando ? (
@@ -646,6 +676,10 @@ function SeccionProveedores({ orgId }) {
                 <div style={{ color: COLORS.muted, fontSize: "11px" }}>
                   {p.cuit ? `CUIT ${p.cuit}` : "Sin CUIT"} · {p.telefono || "Sin tel."} · {p.email || "Sin email"}
                 </div>
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button style={{ background: "transparent", border: `1px solid ${COLORS.border || "#2a3f34"}`, borderRadius: "6px", color: COLORS.text, cursor: "pointer", fontSize: "11px", padding: "4px 10px" }} onClick={() => handleEditar(p)}>Editar</button>
+                <button style={{ background: "transparent", border: "1px solid #e57373", borderRadius: "6px", color: "#e57373", cursor: "pointer", fontSize: "11px", padding: "4px 10px" }} onClick={() => handleEliminar(p)}>Eliminar</button>
               </div>
             </div>
           ))}

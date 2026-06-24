@@ -359,6 +359,59 @@ function BloqueDespacho({ req, proveedores, onCrearOrden }) {
   );
 }
 
+function ListaOrdenes({ ordenesCompra }) {
+  const ordenes = (ordenesCompra || []).slice().sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (ordenes.length === 0) {
+    return (
+      <div style={{ ...S.panel, textAlign: "center", color: COLORS.muted, padding: "40px" }}>
+        Aún no hay órdenes de compra. Despachá ítems de un requerimiento para generarlas.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      {ordenes.map((oc) => {
+        const items = Array.isArray(oc.items) ? oc.items : [];
+        return (
+          <div key={oc.id} style={{ ...S.panel, display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 800, color: COLORS.gold, fontSize: "14px" }}>{oc.id}</span>
+              <span style={{ color: COLORS.text, fontSize: "12px" }}>{oc.proveedorNombre || "—"}</span>
+              <span style={{ color: COLORS.muted, fontSize: "12px" }}>{oc.fecha || ""}</span>
+              <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: "6px", background: COLORS.subtle, color: COLORS.muted }}>{oc.estado || "abierta"}</span>
+              {oc.reqNumero != null && (
+                <span style={{ color: COLORS.muted, fontSize: "11px" }}>desde REQ N° {oc.reqNumero}</span>
+              )}
+            </div>
+            {items.length > 0 && (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <thead>
+                  <tr style={{ color: COLORS.muted, textAlign: "left" }}>
+                    <th style={{ padding: "4px 6px", fontWeight: 600 }}>Código</th>
+                    <th style={{ padding: "4px 6px", fontWeight: 600 }}>Descripción</th>
+                    <th style={{ padding: "4px 6px", fontWeight: 600, textAlign: "right" }}>Cant.</th>
+                    <th style={{ padding: "4px 6px", fontWeight: 600 }}>Unidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it, idx) => (
+                    <tr key={idx} style={{ borderTop: `1px solid ${COLORS.border || "#2a3f34"}`, color: COLORS.text }}>
+                      <td style={{ padding: "4px 6px" }}>{it.codigo || "—"}</td>
+                      <td style={{ padding: "4px 6px" }}>{it.desc || "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right" }}>{it.cantSolicitada ?? "—"}</td>
+                      <td style={{ padding: "4px 6px" }}>{it.um || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Lista de REQs + barra ────────────────────────────────────────────────────
 function ListaReqs({
   proyecto,
@@ -377,6 +430,7 @@ function ListaReqs({
 }) {
   const reqs = (proyecto.reqs || []).slice().sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0));
   const [expandidoId, setExpandidoId] = useState(null);
+  const [subvista, setSubvista] = useState("reqs");
 
   return (
     <div>
@@ -399,6 +453,17 @@ function ListaReqs({
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+        <button onClick={() => setSubvista("reqs")} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: subvista === "reqs" ? 700 : 400, color: subvista === "reqs" ? COLORS.gold : COLORS.muted, padding: "4px 8px" }}>
+          Requerimientos
+        </button>
+        <button onClick={() => setSubvista("ordenes")} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: subvista === "ordenes" ? 700 : 400, color: subvista === "ordenes" ? COLORS.gold : COLORS.muted, padding: "4px 8px" }}>
+          Órdenes de compra
+        </button>
+      </div>
+
+      {subvista === "reqs" && (
+        <>
       {children}
 
       {(aiAnalysis !== null || aiError !== null) && (
@@ -441,6 +506,8 @@ function ListaReqs({
           {reqs.map((r) => {
             const badge = ESTADO_BADGE[r.estado] || ESTADO_BADGE.pendiente;
             const nItems = Array.isArray(r.items) ? r.items.length : 0;
+            const itemsArr = Array.isArray(r.items) ? r.items : [];
+            const despachado = itemsArr.length > 0 && itemsArr.every((it) => it.ocCodigo);
             const obs = (r.observaciones || "").trim();
             const abierto = expandidoId === r.id;
             return (
@@ -468,6 +535,11 @@ function ListaReqs({
                       {badge.label}
                     </span>
                     <span style={{ color: COLORS.muted, fontSize: "11px" }}>{nItems} ítem{nItems !== 1 ? "s" : ""}</span>
+                    {despachado && (
+                      <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: "6px", background: "rgba(93,202,165,0.15)", color: "#5dcaa5" }}>
+                        despachado
+                      </span>
+                    )}
                   </div>
                 </div>
                 {obs ? (
@@ -517,6 +589,9 @@ function ListaReqs({
           })}
         </div>
       )}
+        </>
+      )}
+      {subvista === "ordenes" && <ListaOrdenes ordenesCompra={ordenesCompra} />}
     </div>
   );
 }

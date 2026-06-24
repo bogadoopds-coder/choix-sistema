@@ -5,7 +5,7 @@ import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra } from "../../services/obrasRepo";
+import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra, crearOrdenCompra } from "../../services/obrasRepo";
 
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
@@ -284,10 +284,85 @@ function ListaObras({ proyectos, onSelect }) {
   );
 }
 
+function BloqueDespacho({ req, proveedores, onCrearOrden }) {
+  const [seleccion, setSeleccion] = useState(new Set());
+  const [provId, setProvId] = useState("");
+  const [creando, setCreando] = useState(false);
+
+  const items = Array.isArray(req.items) ? req.items : [];
+  const sueltos = items
+    .map((it, idx) => ({ it, idx }))
+    .filter(({ it }) => !it.ocCodigo);
+
+  function toggle(idx) {
+    setSeleccion((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  const puedeCrear = seleccion.size > 0 && provId && !creando;
+
+  async function crear() {
+    if (!puedeCrear) return;
+    const proveedor = proveedores.find((p) => p.id === provId);
+    if (!proveedor) return;
+    setCreando(true);
+    try {
+      await onCrearOrden(req, Array.from(seleccion), proveedor);
+      setSeleccion(new Set());
+      setProvId("");
+    } catch (e) {
+      console.error("Error al crear orden:", e);
+    }
+    setCreando(false);
+  }
+
+  if (sueltos.length === 0) {
+    return (
+      <div style={{ marginTop: "10px", fontSize: "11px", color: "#5dcaa5" }}>
+        ✓ Todos los ítems de este requerimiento ya fueron despachados.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: "12px", padding: "10px", borderRadius: "6px", background: COLORS.bg, border: `1px solid ${COLORS.border || "#2a3f34"}` }}>
+      <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "8px" }}>Despachar a proveedor</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginBottom: "10px" }}>
+        {sueltos.map(({ it, idx }) => (
+          <label key={idx} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: COLORS.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={seleccion.has(idx)} onChange={() => toggle(idx)} />
+            <span>{it.codigo} — {it.desc} ({it.cantSolicitada} {it.um})</span>
+          </label>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        <select value={provId} onChange={(e) => setProvId(e.target.value)} style={{ ...S.input, maxWidth: "240px" }}>
+          <option value="">Elegí proveedor...</option>
+          {proveedores.map((p) => (
+            <option key={p.id} value={p.id}>{p.nombre}</option>
+          ))}
+        </select>
+        <button style={{ ...S.btn("gold", true), opacity: puedeCrear ? 1 : 0.5 }} disabled={!puedeCrear} onClick={crear}>
+          {creando ? "Creando..." : `Crear orden (${seleccion.size})`}
+        </button>
+      </div>
+      {proveedores.length === 0 && (
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>No hay proveedores cargados. Cargá uno en la solapa Proveedores.</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Lista de REQs + barra ────────────────────────────────────────────────────
 function ListaReqs({
   proyecto,
   ordenesCompra,
+  proveedores,
+  onCrearOrden,
   onBack,
   onNewReq,
   aiLoading,
@@ -431,6 +506,7 @@ function ListaReqs({
                         </tbody>
                       </table>
                     )}
+                    <BloqueDespacho req={r} proveedores={proveedores} onCrearOrden={onCrearOrden} />
                   </div>
                 )}
               </div>
@@ -747,6 +823,7 @@ export default function ComprasModule() {
   const [aiError, setAiError] = useState(null);
   const [seccion, setSeccion] = useState("compras");
   const [ordenesCompra, setOrdenesCompra] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -793,6 +870,13 @@ export default function ComprasModule() {
       console.error("Compras: error cargando órdenes", e);
       setOrdenesCompra([]);
     }
+    try {
+      const provs = await getProveedores(orgId);
+      setProveedores(provs);
+    } catch (e) {
+      console.error("Compras: error cargando proveedores", e);
+      setProveedores([]);
+    }
   }
 
   function nextReqNumero(p) {
@@ -809,6 +893,56 @@ export default function ComprasModule() {
     });
     await persistAll(updated);
     setShowFormReq(false);
+  }
+
+  async function handleCrearOrden(req, indicesSeleccionados, proveedor) {
+    if (!activeProyecto || !proveedor || !indicesSeleccionados.length) return;
+    const obraId = activeProyecto.id;
+    const itemsReq = Array.isArray(req.items) ? req.items : [];
+    const itemsOrden = indicesSeleccionados.map((idx) => {
+      const it = itemsReq[idx];
+      return {
+        codigo: it.codigo || "",
+        desc: it.desc || "",
+        cantSolicitada: it.cantSolicitada ?? null,
+        um: it.um || "",
+      };
+    });
+    const orden = {
+      reqId: req.id,
+      reqNumero: req.numero ?? null,
+      proveedorId: proveedor.id,
+      proveedorNombre: proveedor.nombre || "",
+      fecha: new Date().toISOString().slice(0, 10),
+      estado: "abierta",
+      items: itemsOrden,
+    };
+    let ocId;
+    try {
+      ocId = await crearOrdenCompra(orgId, obraId, orden);
+    } catch (e) {
+      console.error("Compras: error creando orden", e);
+      return;
+    }
+    const setIdx = new Set(indicesSeleccionados);
+    const reqActualizado = {
+      ...req,
+      items: itemsReq.map((it, idx) =>
+        setIdx.has(idx) ? { ...it, ocId, ocCodigo: ocId } : it
+      ),
+    };
+    const updated = proyectos.map((p) => {
+      if (p.id !== obraId) return p;
+      const reqs = (p.reqs || []).map((rr) => (rr.id === req.id ? reqActualizado : rr));
+      return { ...p, reqs };
+    });
+    await persistAll(updated);
+    try {
+      const ocs = await getOrdenesCompra(orgId, obraId);
+      setOrdenesCompra(ocs);
+    } catch (e) {
+      console.error("Compras: error recargando órdenes", e);
+    }
   }
 
   async function analizarConIA() {
@@ -898,6 +1032,8 @@ export default function ComprasModule() {
           <ListaReqs
             proyecto={activeProyecto}
             ordenesCompra={ordenesCompra}
+            proveedores={proveedores}
+            onCrearOrden={handleCrearOrden}
             onBack={() => {
               setView("obras");
               setSelectedProyecto(null);

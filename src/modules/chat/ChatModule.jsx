@@ -240,7 +240,45 @@ export default function ChatModule({ initCmd }) {
 DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMPRE estos datos, no inventes obras ni números que no estén acá):
 ${JSON.stringify(resumen, null, 2)}
 
-Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.`;
+Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.
+
+ACCIONES DISPONIBLES (especialistas):
+Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):
+- Si pide sugerir/estimar rendimientos de ítems sin datos: {"accion":"sugerir_rendimientos","obraId":"<id de la obra>"}
+- Si pide analizar el presupuesto, desvíos, semáforos o consumo de una obra: {"accion":"analizar_presupuesto","obraId":"<id de la obra>"}
+Usá el campo "id" de los datos reales como obraId. Si no queda claro de qué obra habla, preguntale antes de derivar. Para cualquier otro pedido, respondé normal.`;
+  }
+
+  async function ejecutarAccion(accion) {
+    const obra = obrasReales.find((o) => o.id === accion.obraId);
+    if (!obra) return "No encontré esa obra en los datos.";
+    if (accion.accion === "sugerir_rendimientos") {
+      const sinRend = (obra.items || []).filter((i) => i.rendimientos === null || i.rendimientos === undefined);
+      if (sinRend.length === 0) return `✅ Todos los ítems de ${obra.nombre} ya tienen rendimientos cargados.`;
+      const res = await fetch("/.netlify/functions/agent-rendimientos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: sinRend.map((i) => ({ codigo: i.codigo, desc: i.desc, um: i.um })) }),
+      });
+      const data = await res.json();
+      if (data.error) return "⚠️ El especialista de rendimientos devolvió un error: " + data.error;
+      return "📐 Sugerencias del especialista de rendimientos:\n\n" + (data.text || "(sin respuesta)");
+    }
+    if (accion.accion === "analizar_presupuesto") {
+      const res = await fetch("/.netlify/functions/agent-presupuesto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proyecto: { nombre: obra.nombre, codigo: obra.codigo, cliente: obra.cliente },
+          items: obra.items || [],
+          iccPct: obra.iccPct,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) return "⚠️ El especialista de presupuesto devolvió un error: " + data.error;
+      return "📊 Análisis del especialista de presupuesto:\n\n" + (data.analysis || "(sin respuesta)");
+    }
+    return "No conozco esa acción.";
   }
 
   async function sendMessage(text) {
@@ -268,7 +306,18 @@ ${attachedFile.content}
     try {
       const data = await sendChat({ messages: newMessages, system: buildSystemConDatos() });
       const reply = data.content?.map((c) => c.text || "").join("") || data.reply || "Error en la respuesta.";
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      let accion = null;
+      const trimmed = reply.trim();
+      if (trimmed.startsWith("{") && trimmed.includes('"accion"')) {
+        try { accion = JSON.parse(trimmed); } catch (_) { accion = null; }
+      }
+      if (accion && accion.accion) {
+        setMessages((m) => [...m, { role: "assistant", content: "🤝 Derivando al especialista..." }]);
+        const resultado = await ejecutarAccion(accion);
+        setMessages((m) => [...m, { role: "assistant", content: resultado }]);
+      } else {
+        setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      }
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: "⚠️ Error de conexión." }]);
     }

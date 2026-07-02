@@ -3,6 +3,8 @@ import { sendChat } from "../../services/ai/chatClient";
 import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras } from "../../services/obrasRepo";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../firebase";
 
 const SYSTEM_PROMPT = `Sos "Choix Constructora", una app conversacional de gestión de obra para constructoras en Argentina.
 
@@ -265,18 +267,40 @@ Usá el campo "id" de los datos reales como obraId. Si no queda claro de qué ob
       return "📐 Sugerencias del especialista de rendimientos:\n\n" + (data.text || "(sin respuesta)");
     }
     if (accion.accion === "analizar_presupuesto") {
-      const res = await fetch("/.netlify/functions/agent-presupuesto", {
+      const jobId = "job-" + Date.now();
+      const itemsCompactos = (obra.items || []).map((i) => ({
+        codigo: i.codigo,
+        desc: String(i.desc || "").slice(0, 80),
+        um: i.um,
+        cantPresup: i.cantPresup,
+        consumidoReal: i.consumidoReal,
+        precioCustom: i.precioCustom,
+        precioBase: i.precioBase,
+      }));
+      fetch("/.netlify/functions/agent-presupuesto-background", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          orgId,
+          jobId,
           proyecto: { nombre: obra.nombre, codigo: obra.codigo, cliente: obra.cliente },
-          items: obra.items || [],
+          items: itemsCompactos,
           iccPct: obra.iccPct,
         }),
+      }).catch(() => {});
+      const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
+      const unsub = onSnapshot(jobRef, (snap) => {
+        const j = snap.data();
+        if (!j) return;
+        if (j.estado === "listo") {
+          unsub();
+          setMessages((m) => [...m, { role: "assistant", content: "📊 Análisis del especialista de presupuesto:\n\n" + (j.resultado || "(sin respuesta)") }]);
+        } else if (j.estado === "error") {
+          unsub();
+          setMessages((m) => [...m, { role: "assistant", content: "⚠️ El especialista falló: " + (j.detalle || "sin detalle") }]);
+        }
       });
-      const data = await res.json();
-      if (data.error) return "⚠️ El especialista de presupuesto devolvió un error: " + data.error;
-      return "📊 Análisis del especialista de presupuesto:\n\n" + (data.analysis || "(sin respuesta)");
+      return "🤝 El especialista de presupuesto está trabajando sobre " + obra.nombre + " (" + itemsCompactos.length + " ítems). El informe va a aparecer acá apenas termine.";
     }
     return "No conozco esa acción.";
   }

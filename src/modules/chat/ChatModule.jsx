@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { sendChat } from "../../services/ai/chatClient";
 import { COLORS, FONTS } from "../../styles/theme";
+import { useAuth } from "../../auth/AuthContext";
+import { getObras } from "../../services/obrasRepo";
 
 const SYSTEM_PROMPT = `Sos "Choix Constructora", una app conversacional de gestión de obra para constructoras en Argentina.
 
@@ -141,6 +143,18 @@ function MarkdownRenderer({ text }) {
 }
 
 export default function ChatModule({ initCmd }) {
+  const { orgId } = useAuth();
+  const [obrasReales, setObrasReales] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!orgId) return;
+    getObras(orgId).then((obras) => {
+      if (!cancelled) setObrasReales(Array.isArray(obras) ? obras : []);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [orgId]);
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -207,6 +221,28 @@ export default function ChatModule({ initCmd }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  function buildSystemConDatos() {
+    const resumen = obrasReales.map((o) => ({
+      id: o.id,
+      codigo: o.codigo,
+      nombre: o.nombre,
+      cliente: o.cliente,
+      iccPct: o.iccPct,
+      totalItems: Array.isArray(o.items) ? o.items.length : 0,
+      itemsSinRendimientos: Array.isArray(o.items)
+        ? o.items.filter((i) => i.rendimientos === null || i.rendimientos === undefined).length
+        : 0,
+      certificaciones: Array.isArray(o.certificaciones) ? o.certificaciones.length : 0,
+      requerimientos: Array.isArray(o.reqs) ? o.reqs.length : 0,
+    }));
+    return SYSTEM_PROMPT + `
+
+DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMPRE estos datos, no inventes obras ni números que no estén acá):
+${JSON.stringify(resumen, null, 2)}
+
+Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.`;
+  }
+
   async function sendMessage(text) {
     const msgText = ((text || input) || "").trim();
     if (!msgText && !attachedFile) return;
@@ -230,7 +266,7 @@ ${attachedFile.content}
     setMessages(displayMessages);
     setLoading(true);
     try {
-      const data = await sendChat({ messages: newMessages, system: SYSTEM_PROMPT });
+      const data = await sendChat({ messages: newMessages, system: buildSystemConDatos() });
       const reply = data.content?.map((c) => c.text || "").join("") || data.reply || "Error en la respuesta.";
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch (e) {

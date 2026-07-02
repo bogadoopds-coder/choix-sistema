@@ -1,11 +1,12 @@
-const admin = require("firebase-admin");
+const { initializeApp, cert, getApps } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
 
 function getDb() {
-  if (!admin.apps.length) {
+  if (!getApps().length) {
     const cred = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({ credential: admin.credential.cert(cred) });
+    initializeApp({ credential: cert(cred) });
   }
-  return admin.firestore();
+  return getFirestore();
 }
 
 const SYSTEM = `Sos un analista financiero y de control de obra especializado en construccion en Argentina (obras publicas y privadas, presupuestos en pesos, costos de materiales y mano de obra, plazos e incidencias).

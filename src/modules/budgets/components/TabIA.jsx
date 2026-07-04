@@ -118,6 +118,9 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
           unsub();
           let parciales = [];
           try { parciales = JSON.parse(j.parciales || "[]"); } catch (_) {}
+          if (Array.isArray(j.chunksFallidos) && j.chunksFallidos.length > 0) {
+            setFileWarning("⚠️ Atención: no se pudieron leer las partes " + j.chunksFallidos.join(", ") + " del documento. Pueden faltar rubros de esas páginas. Podés volver a subir el documento para reintentar.");
+          }
           resolve(parciales);
         } else if (j.estado === "error") {
           unsub();

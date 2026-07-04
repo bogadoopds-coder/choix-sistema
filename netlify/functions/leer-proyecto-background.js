@@ -127,24 +127,33 @@ exports.handler = async (event) => {
     if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
 
     const parciales = [];
+    const fallidos = [];
     for (let i = 0; i < chunks.length; i++) {
       const info = chunks.length > 1 ? (i + 1) + " de " + chunks.length : "";
       const prompt = armarPrompt(chunks[i], info, obra || {}, chandias);
-      try {
-        const txt = await llamarClaude(apiKey, prompt);
-        const parsed = extractAndParseJson(txt);
-        if (parsed && Array.isArray(parsed.rubros)) {
-          parciales.push(parsed);
+      let ok = false;
+      for (let intento = 1; intento <= 2 && !ok; intento++) {
+        try {
+          const txt = await llamarClaude(apiKey, prompt);
+          const parsed = extractAndParseJson(txt);
+          if (parsed && Array.isArray(parsed.rubros)) {
+            parciales.push(parsed);
+            ok = true;
+          } else {
+            console.error("leer-proyecto chunk", i + 1, "intento", intento, "JSON invalido. Inicio respuesta:", String(txt || "").slice(0, 300));
+          }
+        } catch (e) {
+          console.error("leer-proyecto chunk", i + 1, "intento", intento, "fallo:", e.message);
         }
-      } catch (e) {
-        console.error("leer-proyecto chunk", i + 1, "fallo:", e.message);
       }
+      if (!ok) fallidos.push(i + 1);
       await jobRef.set({ chunksListos: i + 1 }, { merge: true });
     }
 
     await jobRef.set({
       estado: "listo",
       parciales: JSON.stringify(parciales),
+      chunksFallidos: fallidos,
       terminadoEn: new Date().toISOString(),
     }, { merge: true });
 

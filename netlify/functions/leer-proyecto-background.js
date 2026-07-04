@@ -51,7 +51,7 @@ function armarPrompt(chunkText, chunkInfo, obra, chandias) {
     "CLIENTE: " + (obra.cliente || "") + "\n" +
     "DESCRIPCION / DOCUMENTO:\n";
   const suffix = "\n" +
-    "Tenes acceso a los rendimientos del Chandias (resumidos abajo) para estimar precios de tareas compuestas. Para cada item, estima un precio en ARS (marzo 2026): suma materiales + mano de obra. Usa precios de mercado argentino. Nunca dejes precio en 0.\n" +
+    "PRECIOS - regla de oro: si el documento trae precio unitario para el item, EXTRAELO TAL CUAL aparece, sin recalcularlo ni actualizarlo (numeros en formato argentino: punto de miles y coma decimal; \"12.647,54\" significa 12647.54). El campo p es SIEMPRE el precio UNITARIO del item, NUNCA el precio total del item ni del rubro. Solo si el documento NO trae precio para ese item, estimalo en ARS actuales usando los rendimientos del Chandias (abajo): materiales + mano de obra, precios de mercado argentino. Nunca dejes precio en 0.\n" +
     (chandias || "") + "\n" +
     "Responde UNICAMENTE con un unico objeto JSON valido. No incluyas texto antes ni despues, ni backticks ni explicaciones.\n" +
     'Formato compacto (claves cortas): n=numero, d=descripcion, u=unidad, c=cantidad, p=precio_unitario.\n' +

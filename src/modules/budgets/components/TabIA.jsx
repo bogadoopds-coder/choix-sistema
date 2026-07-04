@@ -3,13 +3,15 @@ import * as XLSX from "xlsx";
 import { uid } from "../../../utils/id";
 import { COLORS, S } from "../../../styles/theme";
 import { sendChat } from "../../../services/ai/chatClient";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
+import { useAuth } from "../../../auth/AuthContext";
 import { extraerTextoPDF, parsearTextoPDFProvincial, detectarCómputoEnTexto, buscarEnAprendidos, RUBROS_MAP } from "../utils/parseUtils";
 import { findBestBaseMatch, guardarPreciosAprendidos, CHANDIAS_COMPRIMIDO } from "../utils/priceUtils";
 import { CHANDIAS_RENDIMIENTOS } from "../../../data/chandiasRendimientos";
 
 export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosAprendidos, detectarFormatoCómputo, parseComputeInteligente }) {
+  const { orgId } = useAuth();
   const [pliego, setPliego] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
@@ -90,6 +92,39 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
       return { ...ch.pisos_por_m2.pulido_granitico, tipo: "piso_pulido" };
 
     return null;
+  }
+
+  function leerProyectoEnBackground(texto) {
+    return new Promise((resolve, reject) => {
+      const jobId = "job-" + Date.now();
+      fetch("/.netlify/functions/leer-proyecto-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          jobId,
+          obra: { nombre: proyecto.nombre, codigo: proyecto.codigo, cliente: proyecto.cliente },
+          texto,
+          chandias: CHANDIAS_COMPRIMIDO,
+        }),
+      }).catch(() => {});
+      const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
+      const unsub = onSnapshot(jobRef, (snap) => {
+        const j = snap.data();
+        if (!j) return;
+        if (j.estado === "procesando" && j.chunksTotal) {
+          setFileWarning("Leyendo el documento: parte " + (j.chunksListos || 0) + " de " + j.chunksTotal + "...");
+        } else if (j.estado === "listo") {
+          unsub();
+          let parciales = [];
+          try { parciales = JSON.parse(j.parciales || "[]"); } catch (_) {}
+          resolve(parciales);
+        } else if (j.estado === "error") {
+          unsub();
+          reject(new Error(j.detalle || "Error en el lector"));
+        }
+      }, (err) => { unsub(); reject(err); });
+    });
   }
 
   async function llamarAgentePliegos(textoExtraido) {
@@ -195,15 +230,22 @@ export function TabIA({ proyecto, addItems, BASE, preciosAprendidos, setPreciosA
         let itemsAgregados = 0;
         if (usarAgente) {
           try {
-            itemsAgregados = await llamarAgentePliegos(textoFinal);
+            setFileWarning("Documento enviado al lector, procesando...");
+            const parciales = await leerProyectoEnBackground(textoFinal);
+            const merged = mergePliegoResults(parciales, proyecto.nombre);
+            if (!merged.rubros || merged.rubros.length === 0) {
+              setError("El lector no obtuvo rubros válidos del documento.");
+            } else {
+              setResultado({ obra: proyecto.nombre, rubros: merged.rubros });
+            }
           } catch (err) {
-            setError("Error usando agente para extraer pliego: " + (err?.message || String(err)));
+            setError("Error leyendo el proyecto: " + (err?.message || String(err)));
           }
           setPliego("");
           if (texto.trim().length < 50) {
             setFileWarning("No se pudo extraer texto del PDF. El archivo puede ser una imagen escaneada.");
           } else {
-            setFileWarning(`PDF de ${numPaginas} página(s) procesado con agente. Ítems agregados: ${itemsAgregados}.`);
+            setFileWarning(`PDF de ${numPaginas} página(s) procesado con agente. Revisá la planilla y confirmá para agregar los ítems.`);
             if (detectarCómputoEnTexto(texto)) {
               setFileWarning((w) => (w ? w + " " : "") + "Se detectó estructura de cómputo en el texto.");
             }
@@ -787,12 +829,7 @@ Reglas:
         const { rubros } = structurePliegoRubros(rubrosRaw, "AI/Pliego Single");
         setResultado({ obra: parsed.obra || proyecto.nombre, rubros });
       } else {
-        const chunks = splitIntoChunks(text);
-        const partials = [];
-        for (let i = 0; i < chunks.length; i++) {
-          const parsed = await runOneChunkAnalysis(chunks[i], i, chunks.length);
-          if (parsed && Array.isArray(parsed.rubros) && parsed.rubros.length > 0) partials.push(parsed);
-        }
+        const partials = await leerProyectoEnBackground(text);
         const merged = mergePliegoResults(partials, proyecto.nombre);
         if (merged.rubros.length === 0) {
           setError("No se obtuvieron rubros válidos de ningún fragmento. Revisá la consola.");

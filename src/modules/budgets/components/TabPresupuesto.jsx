@@ -225,16 +225,16 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     const fecha = new Date().toLocaleDateString("es-AR");
     const iccPct = ((iccFactor - 1) * 100).toFixed(0);
     const encabezado = [["Obra", proyecto.nombre || "", "Código", proyecto.codigo || "", "Fecha", fecha, "ICC", `${iccPct}%`]];
-    const cols = ["Código", "Descripción", "UM", "Cantidad", "Precio Base", "Precio Custom", "Precio Final+ICC", "Subtotal"];
+    const cols = ["Código", "Descripción", "Rubro", "UM", "Cantidad", "Precio Base", "Precio Custom", "Precio Final+ICC", "Subtotal"];
     const filas = proyecto.items.map((i) => {
       const codigoBase = i.baseCodigo ?? i.codigo;
       const pBase = precioVigente(codigoBase, i.precioBase, preciosActualizados);
       const precio = i.precioCustom ?? pBase;
       const precioFinal = precio * iccFactor;
       const subtotal = (i.cantPresup ?? 0) * precioFinal;
-      return [i.codigo, i.desc ?? "", i.um ?? "UN", i.cantPresup ?? 0, pBase, i.precioCustom ?? "", precioFinal, subtotal];
+      return [i.codigo, i.desc ?? "", i.rubroNombre || "", i.um ?? "UN", i.cantPresup ?? 0, pBase, i.precioCustom ?? "", precioFinal, subtotal];
     });
-    const aoa = [...encabezado, cols, ...filas, ["TOTAL PRESUPUESTO", "", "", "", "", "", "", total]];
+    const aoa = [...encabezado, cols, ...filas, ["TOTAL PRESUPUESTO", "", "", "", "", "", "", "", total]];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Presupuesto");

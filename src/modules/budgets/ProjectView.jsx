@@ -214,7 +214,7 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
       </div>
 
       <div style={{ display: "flex", gap: "4px", marginBottom: "14px" }}>
-        {[["presupuesto", "📋 Presupuesto"], ["semaforo", "🚦 Semáforo"], ["ia", "🤖 IA / Pliego"], ["config", "⚙ Config"]].map(([t, l]) => (
+        {[["presupuesto", "📋 Presupuesto"], ["semaforo", "🚦 Semáforo"], ["ia", "📄 Leer proyecto"], ["config", "⚙ Config"]].map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)} style={{ ...S.btn(tab === t ? "gold" : "", true), borderRadius: "6px 6px 0 0" }}>{l}</button>
         ))}
       </div>

@@ -922,8 +922,8 @@ Reglas:
 
   return (
     <div style={S.panel}>
-      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px", fontSize: "12px" }}>🤖 ANÁLISIS DE PLIEGO CON IA</div>
-      <div style={{ color: COLORS.muted, fontSize: "11px", marginBottom: "10px" }}>Pegá el texto del pliego, o subí un PDF directamente. La IA identificará los materiales necesarios con cantidades estimadas.</div>
+      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px", fontSize: "12px" }}>📄 LEER PROYECTO</div>
+      <div style={{ color: COLORS.muted, fontSize: "11px", marginBottom: "10px" }}>Pegá el texto del proyecto, o subí un PDF directamente. La IA identificará los materiales necesarios con cantidades estimadas.</div>
 
       <div style={{ marginBottom: "10px" }}>
         <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.docx,.txt" style={{ display: "none" }} onChange={handleFile} />
@@ -967,10 +967,10 @@ Reglas:
       )}
       <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
         <button style={S.btn()} onClick={analizarPliego} disabled={loading || !pliego.trim()}>
-          {loading ? "Analizando..." : "🤖 ANALIZAR CON IA"}
+          {loading ? "Leyendo..." : "📄 LEER PROYECTO"}
         </button>
         <button style={{ ...S.btn("gold") }} onClick={importarDesdeExcel} disabled={!pliego.trim()}>
-          {usarPreciosPliego ? "📥 IMPORTAR CON PRECIOS DEL PLIEGO" : "📥 IMPORTAR Y BUSCAR PRECIOS EN BASE"}
+          {usarPreciosPliego ? "📥 IMPORTAR CON PRECIOS DEL PROYECTO" : "📥 IMPORTAR Y BUSCAR PRECIOS EN BASE"}
         </button>
       </div>
       {error && <div style={{ color: COLORS.rojo, marginTop: "10px", fontSize: "12px" }}>{error}</div>}

@@ -798,7 +798,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
                             {mi?.matched
                               ? `✅ Matcheó con ${mi.baseCodigo ?? ""} - ${mi.baseDesc ?? ""} (${(mi.palabrasMatch || []).length} palabras coincidentes: ${(mi.palabrasMatch || []).join(", ")})`
                               : mi && !mi.matched
-                              ? `❌ Sin match. Palabras buscadas: ${(mi.palabrasBuscadas || []).join(", ")}. Mejor candidato: ${mi.mejorCandidato ?? ""} (${mi.overlapMejor ?? 0} coincidencias, mínimo requerido: ${mi.minRequerido ?? 0})`
+                              ? ((mi.palabrasBuscadas || []).length === 0
+                                  ? "✏️ Ítem importado del documento — sin matching automático con la base"
+                                  : `❌ Sin match. Palabras buscadas: ${(mi.palabrasBuscadas || []).join(", ")}. Mejor candidato: ${mi.mejorCandidato ?? ""} (${mi.overlapMejor ?? 0} coincidencias, mínimo requerido: ${mi.minRequerido ?? 0})`)
                               : "✏️ Ítem custom - sin matching automático"}
                           </div>
                           {item.rendimientos && (

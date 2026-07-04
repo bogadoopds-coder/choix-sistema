@@ -336,13 +336,13 @@ export function enrichItemsWithHierarchy(items) {
     }
     // Si es número entero con precio/cantidad → ítem suelto, hereda rubro actual
 
-    const rubroId = currentRubroId || "SIN_RUBRO";
+    const rubroId = item.rubroId || currentRubroId || "SIN_RUBRO";
 
     return {
       ...item,
       type: "item",
       rubroId,
-      rubroNombre: RUBROS_MAP[rubroId] || "SIN RUBRO",
+      rubroNombre: item.rubroNombre || RUBROS_MAP[rubroId] || "SIN RUBRO",
       subtotal: item.subtotal ?? (Number(item.cantidad || 0) * Number(item.precioBase || 0)),
     };
   });

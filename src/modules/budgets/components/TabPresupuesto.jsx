@@ -185,6 +185,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
   const [sugRendError, setSugRendError] = useState(null);
   const [sugRendRows, setSugRendRows] = useState(null);
   const [sugRendSelected, setSugRendSelected] = useState(() => new Set());
+  const [sugRendOk, setSugRendOk] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,6 +374,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
 
   async function sugerirRendimientos() {
     setSugRendError(null);
+    setSugRendOk(null);
     setSugRendRows(null);
     setSugRendSelected(new Set());
     if (itemsSinRendimientos.length === 0) {
@@ -502,9 +504,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
       console.error("Error guardando rendimientos aprendidos:", e);
     }
 
+    setSugRendOk(`✅ Se aplicaron ${rendByCodigo.size} rendimiento(s). Ya se reflejan en la mano de obra de los ítems.`);
     setSugRendRows(null);
     setSugRendSelected(new Set());
-    setSugRendError(null);
   }
 
   function toggleSugRendCodigo(codigo) {
@@ -579,7 +581,7 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
         )}
       </div>
 
-      {(sugRendError || sugRendRows) && (
+      {(sugRendError || sugRendRows || sugRendOk) && (
         <div
           style={{
             background: COLORS.subtle,
@@ -599,6 +601,9 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
                 </button>
               )}
             </div>
+          )}
+          {sugRendOk && (
+            <div style={{ color: "#5dcaa5", fontSize: 13, marginTop: 8 }}>{sugRendOk}</div>
           )}
           {sugRendRows && sugRendRows.length > 0 && (
             <>

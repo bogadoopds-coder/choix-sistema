@@ -849,6 +849,16 @@ Reglas:
 
   const MAX_IMPORT_ITEMS = 200;
 
+  function normalizarRubroId(nombre) {
+    return String(nombre || "sin-rubro")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "sin-rubro";
+  }
+
   function confirmarItems() {
     const rubros = Array.isArray(resultado?.rubros) ? resultado.rubros : [];
     const flattened = rubros.flatMap((rubro) =>
@@ -889,7 +899,9 @@ Reglas:
           consumidoReal: 0,
           esCustom: !matched || usaPrecioIA,
           justificacion: usaPrecioIA ? "Precio estimado por IA (Chandías + mercado)" : justifAprendido,
-          matchInfo,
+          rubroId: normalizarRubroId(rubro.nombre),
+          rubroNombre: String(rubro.nombre || "").trim() || "Sin rubro",
+          matchInfo: matched ? matchInfo : "Ítem importado del documento — sin match con la base",
         };
       })
     ).filter((r) => r != null && r.desc != null && String(r.desc).trim().length > 0);

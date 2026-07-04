@@ -9,6 +9,8 @@ import { UOCRA_RATES_DEFAULT } from "../../../data/uocraRates";
 import { normalizeRendimientosDescKey } from "../../../services/storage";
 import { useAuth } from "../../../auth/AuthContext";
 import { getUocraRates, saveUocraRates, getRendimientos, upsertRendimientos } from "../../../services/obrasRepo";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../../firebase";
 
 /** MO UOCRA por ítem (solo oficial + ayudante, con ICC), mismo criterio que el resumen. */
 function moUocraItemOficialAyudanteIcc(item, rates, iccPct) {
@@ -344,6 +346,31 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
     }
   }
 
+  function sugerirRendimientosEnBackground(items) {
+    return new Promise((resolve, reject) => {
+      const jobId = "job-" + Date.now();
+      fetch("/.netlify/functions/agent-rendimientos-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, jobId, items }),
+      }).catch(() => {});
+      const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
+      const unsub = onSnapshot(jobRef, (snap) => {
+        const j = snap.data();
+        if (!j) return;
+        if (j.estado === "listo") {
+          unsub();
+          let parsed = null;
+          try { parsed = JSON.parse(j.resultado || "{}"); } catch (_) {}
+          resolve(parsed && Array.isArray(parsed.rendimientos) ? parsed.rendimientos : []);
+        } else if (j.estado === "error") {
+          unsub();
+          reject(new Error(j.detalle || "Error en el especialista de rendimientos"));
+        }
+      }, (err) => { unsub(); reject(err); });
+    });
+  }
+
   async function sugerirRendimientos() {
     setSugRendError(null);
     setSugRendRows(null);
@@ -389,26 +416,10 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
         um: i.um ?? "UN",
       }));
 
-      const chunks = chunkItems(toProcess, ITEMS_IA_CHUNK);
+      const arr = await sugerirRendimientosEnBackground(toProcess);
       const acc = [];
-      for (const part of chunks) {
-        const res = await fetch("/.netlify/functions/agent-rendimientos", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items: part }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) { setSugRendError(data.error ? `Rendimientos: ${data.error}` : `Error ${res.status}`); return; }
-        const text = data.text ?? "";
-        const parsed = parseJsonObjectFromAnthropicText(text);
-        const arr = parsed?.rendimientos;
-        if (!Array.isArray(arr)) {
-          setSugRendError("La respuesta no traía JSON válido con rendimientos[].");
-          return;
-        }
-        for (const r of arr) {
-          if (r && r.codigo != null && String(r.codigo).trim() !== "") acc.push(r);
-        }
+      for (const r of arr) {
+        if (r && r.codigo != null && String(r.codigo).trim() !== "") acc.push(r);
       }
       const byCodigo = new Map();
       for (const r of acc) {

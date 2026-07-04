@@ -80,7 +80,7 @@ export async function saveItems(orgId, obraId, items) {
     }
     idsEnPantalla.add(id);
     const { _id, ...data } = item;
-    batch.set(doc(col, id), data);
+    batch.set(doc(col, id), JSON.parse(JSON.stringify(data)));
   }
 
   // borrar los que estaban en DB pero ya no en pantalla

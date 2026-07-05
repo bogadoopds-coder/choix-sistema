@@ -297,32 +297,8 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
       };
       const iccPct = proyecto.iccPct ?? proyecto.icc;
 
-      const itemChunks = chunkItems(itemsPayload, ITEMS_IA_CHUNK);
-      const partes = [];
-
-      for (let i = 0; i < itemChunks.length; i++) {
-        const chunk = itemChunks[i];
-        const payloadJson = JSON.stringify(
-          { proyecto: proyectoCtx, items: chunk, iccPct },
-          null,
-          2
-        );
-        const userContent =
-          itemChunks.length > 1
-            ? `Parte ${i + 1} de ${itemChunks.length} (solo estos ítems). Datos JSON:\n\n${payloadJson}\n\nRedactá el análisis según las instrucciones del sistema aplicando solo a los ítems listados.`
-            : `Datos para el análisis (JSON):\n\n${payloadJson}\n\nRedactá el análisis completo según las instrucciones del sistema.`;
-
-        const res = await fetch("/.netlify/functions/agent-presupuesto", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ proyecto: proyectoCtx, items: chunk, iccPct }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) { setAiError(data.error ? `Análisis: ${data.error}` : `Error ${res.status}`); return; }
-        partes.push(data.analysis || "");
-      }
-
-      setAiAnalysis(partes.join("\n\n─────────────────\n\n"));
+      const analisis = await analizarPresupuestoEnBackground(proyectoCtx, itemsPayload, iccPct);
+      setAiAnalysis(analisis);
     } catch (e) {
       setAiError(e?.message || "Error al analizar");
     } finally {
@@ -367,6 +343,29 @@ export function TabPresupuesto({ proyecto, iccFactor, addItems, updateItem, upda
         } else if (j.estado === "error") {
           unsub();
           reject(new Error(j.detalle || "Error en el especialista de rendimientos"));
+        }
+      }, (err) => { unsub(); reject(err); });
+    });
+  }
+
+  function analizarPresupuestoEnBackground(proyectoCtx, items, iccPct) {
+    return new Promise((resolve, reject) => {
+      const jobId = "job-" + Date.now();
+      fetch("/.netlify/functions/agent-presupuesto-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, jobId, proyecto: proyectoCtx, items, iccPct }),
+      }).catch(() => {});
+      const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
+      const unsub = onSnapshot(jobRef, (snap) => {
+        const j = snap.data();
+        if (!j) return;
+        if (j.estado === "listo") {
+          unsub();
+          resolve(j.resultado || "(sin respuesta)");
+        } else if (j.estado === "error") {
+          unsub();
+          reject(new Error(j.detalle || "Error en el analista de presupuesto"));
         }
       }, (err) => { unsub(); reject(err); });
     });

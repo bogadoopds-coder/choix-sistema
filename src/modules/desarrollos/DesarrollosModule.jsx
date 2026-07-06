@@ -4,6 +4,8 @@ import { useAuth } from "../../auth/AuthContext";
 import {
   getDesarrollos, saveDesarrollo, deleteDesarrollo,
   getUnidades, saveUnidad, deleteUnidad,
+  getClientes, getBoletos, getCuotas,
+  crearBoletoConCuotas, anularBoleto, registrarPago,
 } from "../../services/desarrollosRepo";
 
 const ESTADOS_DEV = [
@@ -222,6 +224,7 @@ function DetalleUnidades({ orgId, dev, onVolver }) {
   const [editandoId, setEditandoId] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
+  const [tab, setTab] = useState("unidades");
 
   async function cargar() {
     try {
@@ -312,6 +315,17 @@ function DetalleUnidades({ orgId, dev, onVolver }) {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
+        <button onClick={() => setTab("unidades")}
+          style={{ ...S.btn(tab === "unidades" ? "blue" : undefined, true), padding: "6px 14px", fontSize: "11px", cursor: "pointer" }}>
+          Unidades ({unidades.length})
+        </button>
+        <button onClick={() => setTab("boletos")}
+          style={{ ...S.btn(tab === "boletos" ? "blue" : undefined, true), padding: "6px 14px", fontSize: "11px", cursor: "pointer" }}>
+          Boletos
+        </button>
+      </div>
+
       {error && (
         <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: COLORS.rojo }}>
           {error}
@@ -320,6 +334,8 @@ function DetalleUnidades({ orgId, dev, onVolver }) {
 
       {!ready ? (
         <div style={{ padding: "40px", textAlign: "center", color: COLORS.muted }}>Cargando...</div>
+      ) : tab === "boletos" ? (
+        <TabBoletos orgId={orgId} dev={dev} unidades={unidades} onCambio={cargar} />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "14px", alignItems: "start" }}>
 
@@ -451,6 +467,310 @@ function DetalleUnidades({ orgId, dev, onVolver }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ESTADOS_CUOTA = {
+  pendiente: { label: "PENDIENTE", color: COLORS.amarillo },
+  pagada:    { label: "PAGADA",    color: COLORS.verde },
+  mora:      { label: "MORA",      color: COLORS.rojo },
+};
+
+const FORM_BOLETO_VACIO = {
+  unidadId: "", clienteId: "", montoTotal: "", moneda: "USD",
+  plan: "fijo", anticipo: "", cantidadCuotas: "", primerVencimiento: "",
+};
+
+// ─── TAB BOLETOS: venta en pozo ─────────────────────────────────────────────
+function TabBoletos({ orgId, dev, unidades, onCambio }) {
+  const [boletos, setBoletos] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [ready, setReady] = useState(false);
+  const [form, setForm] = useState(FORM_BOLETO_VACIO);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const [abierto, setAbierto] = useState(null);      // id del boleto expandido
+  const [cuotasPorBoleto, setCuotasPorBoleto] = useState({});
+
+  async function cargar() {
+    try {
+      const [bols, clis] = await Promise.all([
+        getBoletos(orgId, dev.id),
+        getClientes(orgId),
+      ]);
+      bols.sort((a, b) => (a.id > b.id ? 1 : -1));
+      setBoletos(bols);
+      setClientes(clis);
+    } catch (e) {
+      setError("No se pudieron cargar los boletos.");
+      console.error("Error cargando boletos:", e);
+    }
+    setReady(true);
+  }
+
+  useEffect(() => { cargar(); }, [orgId, dev.id]);
+
+  const disponibles = unidades.filter((u) => u.estado === "disponible");
+
+  const financiado = (Number(form.montoTotal) || 0) - (Number(form.anticipo) || 0);
+  const n = Number(form.cantidadCuotas) || 0;
+  const previewCuota = financiado > 0 && n > 0 ? financiado / n : null;
+
+  const puedeCrear = form.unidadId && form.clienteId
+    && Number(form.montoTotal) > 0
+    && (Number(form.anticipo) || 0) < Number(form.montoTotal)
+    && n >= 1 && form.primerVencimiento;
+
+  async function crear() {
+    if (!puedeCrear || guardando) return;
+    setGuardando(true);
+    setError("");
+    try {
+      await crearBoletoConCuotas(orgId, dev.id, {
+        unidadId: form.unidadId,
+        clienteId: form.clienteId,
+        montoTotal: Number(form.montoTotal),
+        moneda: form.moneda,
+        plan: form.plan,
+        anticipo: Number(form.anticipo) || 0,
+      }, {
+        cantidadCuotas: n,
+        primerVencimiento: form.primerVencimiento,
+      });
+      setForm(FORM_BOLETO_VACIO);
+      await cargar();
+      onCambio(); // refresca unidades en el padre (la unidad pasó a vendida)
+    } catch (e) {
+      setError(e.message || "No se pudo crear el boleto.");
+      console.error("Error creando boleto:", e);
+    }
+    setGuardando(false);
+  }
+
+  async function toggleCuotas(bolId) {
+    if (abierto === bolId) { setAbierto(null); return; }
+    setAbierto(bolId);
+    if (!cuotasPorBoleto[bolId]) {
+      try {
+        const cts = await getCuotas(orgId, dev.id, bolId);
+        setCuotasPorBoleto((prev) => ({ ...prev, [bolId]: cts }));
+      } catch (e) {
+        console.error("Error cargando cuotas:", e);
+      }
+    }
+  }
+
+  async function pagar(bol, cuota) {
+    const ok = window.confirm(`¿Registrar pago de la cuota ${cuota.numero} (${money(cuota.montoAjustado, bol.moneda)})?`);
+    if (!ok) return;
+    setError("");
+    try {
+      await registrarPago(orgId, {
+        devId: dev.id, boletoId: bol.id, cuotaId: cuota.id,
+        monto: cuota.montoAjustado,
+      });
+      const cts = await getCuotas(orgId, dev.id, bol.id);
+      setCuotasPorBoleto((prev) => ({ ...prev, [bol.id]: cts }));
+    } catch (e) {
+      setError(e.message || "No se pudo registrar el pago.");
+      console.error("Error registrando pago:", e);
+    }
+  }
+
+  async function anular(bol) {
+    const ok = window.confirm(`¿Anular el boleto ${bol.id}? Se borran sus cuotas y la unidad vuelve a disponible.`);
+    if (!ok) return;
+    setError("");
+    try {
+      await anularBoleto(orgId, dev.id, bol.id);
+      setAbierto(null);
+      await cargar();
+      onCambio();
+    } catch (e) {
+      setError(e.message || "No se pudo anular el boleto.");
+      console.error("Error anulando boleto:", e);
+    }
+  }
+
+  if (!ready) return <div style={{ padding: "40px", textAlign: "center", color: COLORS.muted }}>Cargando...</div>;
+
+  return (
+    <div>
+      {error && (
+        <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: COLORS.rojo }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "14px", alignItems: "start" }}>
+
+        {/* ── Nuevo boleto ── */}
+        <div style={S.panel}>
+          <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "12px", fontSize: "12px" }}>NUEVO BOLETO</div>
+          {disponibles.length === 0 ? (
+            <div style={{ color: COLORS.muted, fontSize: "12px", padding: "10px 0" }}>
+              No hay unidades disponibles en este desarrollo.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              <div>
+                <label style={S.label}>Unidad (solo disponibles)</label>
+                <select style={S.input} value={form.unidadId}
+                  onChange={(e) => setForm({ ...form, unidadId: e.target.value })}>
+                  <option value="">— Elegir unidad —</option>
+                  {disponibles.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.codigo}{u.tipologia ? ` · ${u.tipologia}` : ""}{u.m2 ? ` · ${u.m2} m²` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={S.label}>Cliente</label>
+                <select style={S.input} value={form.clienteId}
+                  onChange={(e) => setForm({ ...form, clienteId: e.target.value })}>
+                  <option value="">— Elegir cliente —</option>
+                  {clientes.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.tipo})</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", alignItems: "end" }}>
+                <div>
+                  <label style={S.label}>Monto total</label>
+                  <input style={S.input} type="number" placeholder="Ej: 120000" value={form.montoTotal}
+                    onChange={(e) => setForm({ ...form, montoTotal: e.target.value })} />
+                </div>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  {["USD", "ARS"].map((m) => (
+                    <button key={m} onClick={() => setForm({ ...form, moneda: m })}
+                      style={{ ...S.btn(form.moneda === m ? "blue" : undefined, true), padding: "7px 10px", fontSize: "11px", cursor: "pointer" }}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>Plan</label>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {["fijo", "USD", "CAC"].map((p) => (
+                    <button key={p} onClick={() => setForm({ ...form, plan: p })}
+                      style={{ ...S.btn(form.plan === p ? "blue" : undefined, true), padding: "6px 10px", fontSize: "11px", cursor: "pointer" }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                {form.plan === "CAC" && (
+                  <div style={{ fontSize: "10px", color: COLORS.amarillo, marginTop: "4px" }}>
+                    ⚠ El recálculo por CAC todavía no está activo (pendiente de validación contable). Las cuotas se generan sin ajuste.
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                <div>
+                  <label style={S.label}>Anticipo</label>
+                  <input style={S.input} type="number" placeholder="Ej: 30000" value={form.anticipo}
+                    onChange={(e) => setForm({ ...form, anticipo: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Cant. de cuotas</label>
+                  <input style={S.input} type="number" placeholder="Ej: 24" value={form.cantidadCuotas}
+                    onChange={(e) => setForm({ ...form, cantidadCuotas: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>Primer vencimiento</label>
+                <input style={S.input} type="date" value={form.primerVencimiento}
+                  onChange={(e) => setForm({ ...form, primerVencimiento: e.target.value })} />
+              </div>
+              {previewCuota !== null && (
+                <div style={{ fontSize: "11px", color: COLORS.muted }}>
+                  Financiado: <span style={{ color: COLORS.text, fontWeight: 700 }}>{money(financiado, form.moneda)}</span>
+                  {" "}→ {n} cuota{n !== 1 ? "s" : ""} de ≈ <span style={{ color: COLORS.gold, fontWeight: 700 }}>{money(previewCuota, form.moneda)}</span>
+                </div>
+              )}
+              <button style={{ ...S.btn("gold"), padding: "8px", cursor: "pointer", opacity: !puedeCrear || guardando ? 0.5 : 1 }}
+                disabled={!puedeCrear || guardando} onClick={crear}>
+                {guardando ? "CREANDO..." : "CREAR BOLETO"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Listado de boletos ── */}
+        <div style={S.panel}>
+          <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "12px", fontSize: "12px" }}>
+            BOLETOS ({boletos.length})
+          </div>
+          {boletos.length === 0 ? (
+            <div style={{ color: COLORS.muted, textAlign: "center", padding: "30px", fontSize: "12px" }}>
+              Este desarrollo todavía no tiene boletos.<br />Creá el primero con el formulario de la izquierda.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {boletos.map((bol) => {
+                const uni = unidades.find((u) => u.id === bol.unidadId);
+                const cli = clientes.find((c) => c.id === bol.clienteId);
+                const cts = cuotasPorBoleto[bol.id] || [];
+                const pagadas = cts.filter((c) => c.estado === "pagada").length;
+                return (
+                  <div key={bol.id} style={{ background: COLORS.subtle, borderRadius: "6px", padding: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "10px", color: COLORS.muted }}>{bol.id} · {bol.fecha}</div>
+                        <div style={{ fontSize: "13px", fontWeight: 700 }}>
+                          {uni ? `Unidad ${uni.codigo}` : bol.unidadId} → {cli ? cli.nombre : bol.clienteId}
+                        </div>
+                        <div style={{ fontSize: "11px", color: COLORS.muted }}>
+                          {money(bol.montoTotal, bol.moneda)} · anticipo {money(bol.anticipo, bol.moneda)} · {bol.cantidadCuotas} cuotas · plan {bol.plan}
+                        </div>
+                      </div>
+                      <button onClick={() => toggleCuotas(bol.id)}
+                        style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
+                        {abierto === bol.id ? "Ocultar cuotas" : "Ver cuotas"}
+                      </button>
+                      <button onClick={() => anular(bol)}
+                        style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.rojo, cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
+                        Anular
+                      </button>
+                    </div>
+                    {abierto === bol.id && (
+                      <div style={{ borderTop: `1px solid ${COLORS.border}30`, marginTop: "8px", paddingTop: "8px", display: "flex", flexDirection: "column", gap: "3px" }}>
+                        {cts.length === 0 ? (
+                          <div style={{ fontSize: "11px", color: COLORS.muted }}>Cargando cuotas...</div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "4px" }}>
+                              {pagadas}/{cts.length} pagadas · montos sin ajuste aplicado (indiceAjuste pendiente)
+                            </div>
+                            {cts.map((c) => {
+                              const ec = ESTADOS_CUOTA[c.estado] || ESTADOS_CUOTA.pendiente;
+                              return (
+                                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px" }}>
+                                  <span style={{ color: COLORS.muted, minWidth: "36px" }}>#{c.numero}</span>
+                                  <span style={{ color: COLORS.muted, minWidth: "80px" }}>{c.vencimiento}</span>
+                                  <span style={{ fontWeight: 600, minWidth: "100px" }}>{money(c.montoAjustado, bol.moneda)}</span>
+                                  <span style={S.tag(ec.color)}>{ec.label}</span>
+                                  {c.estado === "pendiente" && (
+                                    <button onClick={() => pagar(bol, c)}
+                                      style={{ ...S.btn(undefined, true), cursor: "pointer", fontSize: "10px", padding: "2px 8px", marginLeft: "auto" }}>
+                                      Registrar pago
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

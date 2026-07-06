@@ -3,7 +3,7 @@ import { sendChat } from "../../services/ai/chatClient";
 import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras } from "../../services/obrasRepo";
-import { getDesarrollos, getUnidades, getClientes } from "../../services/desarrollosRepo";
+import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 
@@ -160,6 +160,7 @@ export default function ChatModule({ initCmd }) {
 
   const [desarrollosReales, setDesarrollosReales] = useState([]);
   const [clientesReales, setClientesReales] = useState([]);
+  const [cobranzasReales, setCobranzasReales] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +171,14 @@ export default function ChatModule({ initCmd }) {
         const conUnidades = await Promise.all(
           (devs || []).map(async (d) => {
             const unidades = await getUnidades(orgId, d.id).catch(() => []);
-            return { ...d, unidades };
+            const boletosRaw = await getBoletos(orgId, d.id).catch(() => []);
+            const boletos = await Promise.all(
+              boletosRaw.map(async (b) => {
+                const cuotas = await getCuotas(orgId, d.id, b.id).catch(() => []);
+                return { ...b, cuotas };
+              })
+            );
+            return { ...d, unidades, boletos };
           })
         );
         if (!cancelled) setDesarrollosReales(conUnidades);
@@ -178,6 +186,10 @@ export default function ChatModule({ initCmd }) {
       try {
         const clis = await getClientes(orgId);
         if (!cancelled) setClientesReales(Array.isArray(clis) ? clis : []);
+      } catch {}
+      try {
+        const cobs = await getCobranzas(orgId);
+        if (!cancelled) setCobranzasReales(Array.isArray(cobs) ? cobs : []);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -279,10 +291,28 @@ export default function ChatModule({ initCmd }) {
           m2: u.m2 ?? null, piso: u.piso || "", orientacion: u.orientacion || "",
           estado: u.estado, precioLista: u.precioLista ?? null, moneda: u.moneda || "",
         })),
+        boletos: (d.boletos || []).map((b) => {
+          const pagadas = b.cuotas.filter((c) => c.estado === "pagada");
+          const pendientes = b.cuotas.filter((c) => c.estado !== "pagada");
+          const proxima = pendientes[0] || null;
+          return {
+            id: b.id, unidadId: b.unidadId, clienteId: b.clienteId,
+            fecha: b.fecha, montoTotal: b.montoTotal, moneda: b.moneda,
+            plan: b.plan, anticipo: b.anticipo, cantidadCuotas: b.cantidadCuotas,
+            cuotasPagadas: pagadas.length,
+            cuotasPendientes: pendientes.length,
+            saldoPendiente: Math.round(pendientes.reduce((s, c) => s + (c.montoAjustado || 0), 0) * 100) / 100,
+            proximoVencimiento: proxima ? { numero: proxima.numero, fecha: proxima.vencimiento, monto: proxima.montoAjustado } : null,
+          };
+        }),
       })),
       clientes: clientesReales.map((c) => ({
         id: c.id, nombre: c.nombre, contacto: c.contacto || "",
         tipo: c.tipo, origen: c.origen || "",
+      })),
+      cobranzas: cobranzasReales.map((p) => ({
+        id: p.id, fecha: p.fecha, monto: p.monto,
+        devId: p.devId, boletoId: p.boletoId, cuotaId: p.cuotaId, medio: p.medio || "",
       })),
     };
     return SYSTEM_PROMPT + `
@@ -295,7 +325,7 @@ Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, 
 DATOS REALES DE LA MITAD INMOBILIARIA (desarrollos, unidades y clientes de esta organización — misma regla: fuente de verdad, no inventes):
 ${JSON.stringify(resumenInmobiliaria, null, 2)}
 
-Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías) o clientes (leads, compradores, inversores), respondé en base a estos datos. El campo obraId, si no es null, indica qué obra de la lista de arriba construye ese desarrollo — podés cruzar información de costos de obra con el desarrollo cuando te lo pidan. Todavía NO existe motor de cálculo costo→precio ni módulo de boletos/cuotas: si piden eso, aclaralo y ofrecé lo que sí podés analizar con estos datos.
+Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías), clientes, boletos, cuotas o cobranzas, respondé en base a estos datos. Cada boleto incluye cuotas pagadas/pendientes, saldo pendiente y próximo vencimiento — podés responder sobre estado de cobranza, deuda de un cliente o vencimientos que vienen. El campo obraId de un desarrollo, si no es null, indica qué obra lo construye — podés cruzar costos de obra con el desarrollo. IMPORTANTE sobre lo que NO existe todavía: el recálculo de cuotas por índice CAC NO está activo (los montos ajustados son iguales a los originales, pendiente de validación contable) y NO existe motor de cálculo costo→precio por m². Si piden algo de eso, aclaralo y ofrecé lo que sí podés analizar.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

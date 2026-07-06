@@ -3,6 +3,7 @@ import { sendChat } from "../../services/ai/chatClient";
 import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras } from "../../services/obrasRepo";
+import { getDesarrollos, getUnidades, getClientes } from "../../services/desarrollosRepo";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 
@@ -157,6 +158,31 @@ export default function ChatModule({ initCmd }) {
     return () => { cancelled = true; };
   }, [orgId]);
 
+  const [desarrollosReales, setDesarrollosReales] = useState([]);
+  const [clientesReales, setClientesReales] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!orgId) return;
+    (async () => {
+      try {
+        const devs = await getDesarrollos(orgId);
+        const conUnidades = await Promise.all(
+          (devs || []).map(async (d) => {
+            const unidades = await getUnidades(orgId, d.id).catch(() => []);
+            return { ...d, unidades };
+          })
+        );
+        if (!cancelled) setDesarrollosReales(conUnidades);
+      } catch {}
+      try {
+        const clis = await getClientes(orgId);
+        if (!cancelled) setClientesReales(Array.isArray(clis) ? clis : []);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [orgId]);
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -237,12 +263,39 @@ export default function ChatModule({ initCmd }) {
       certificaciones: Array.isArray(o.certificaciones) ? o.certificaciones.length : 0,
       requerimientos: Array.isArray(o.reqs) ? o.reqs.length : 0,
     }));
+    const resumenInmobiliaria = {
+      desarrollos: desarrollosReales.map((d) => ({
+        id: d.id,
+        nombre: d.nombre,
+        ubicacion: d.ubicacion || "",
+        estado: d.estado,
+        obraId: d.obraId || null,
+        totalUnidades: d.unidades.length,
+        disponibles: d.unidades.filter((u) => u.estado === "disponible").length,
+        reservadas: d.unidades.filter((u) => u.estado === "reservada").length,
+        vendidas: d.unidades.filter((u) => u.estado === "vendida").length,
+        unidades: d.unidades.map((u) => ({
+          id: u.id, codigo: u.codigo, tipologia: u.tipologia || "",
+          m2: u.m2 ?? null, piso: u.piso || "", orientacion: u.orientacion || "",
+          estado: u.estado, precioLista: u.precioLista ?? null, moneda: u.moneda || "",
+        })),
+      })),
+      clientes: clientesReales.map((c) => ({
+        id: c.id, nombre: c.nombre, contacto: c.contacto || "",
+        tipo: c.tipo, origen: c.origen || "",
+      })),
+    };
     return SYSTEM_PROMPT + `
 
 DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMPRE estos datos, no inventes obras ni números que no estén acá):
 ${JSON.stringify(resumen, null, 2)}
 
 Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.
+
+DATOS REALES DE LA MITAD INMOBILIARIA (desarrollos, unidades y clientes de esta organización — misma regla: fuente de verdad, no inventes):
+${JSON.stringify(resumenInmobiliaria, null, 2)}
+
+Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías) o clientes (leads, compradores, inversores), respondé en base a estos datos. El campo obraId, si no es null, indica qué obra de la lista de arriba construye ese desarrollo — podés cruzar información de costos de obra con el desarrollo cuando te lo pidan. Todavía NO existe motor de cálculo costo→precio ni módulo de boletos/cuotas: si piden eso, aclaralo y ofrecé lo que sí podés analizar con estos datos.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

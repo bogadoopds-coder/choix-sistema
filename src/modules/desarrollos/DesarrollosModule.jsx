@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
+import { getObras } from "../../services/obrasRepo";
 import {
   getDesarrollos, saveDesarrollo, deleteDesarrollo,
   getUnidades, saveUnidad, deleteUnidad,
@@ -20,7 +21,7 @@ const ESTADOS_UNIDAD = [
   { id: "vendida",    label: "Vendida",    color: COLORS.blue },
 ];
 
-const FORM_DEV_VACIO = { nombre: "", ubicacion: "", estado: "pozo" };
+const FORM_DEV_VACIO = { nombre: "", ubicacion: "", estado: "pozo", obraId: "" };
 const FORM_UNIDAD_VACIO = {
   codigo: "", tipologia: "", m2: "", piso: "", orientacion: "",
   estado: "disponible", precioLista: "", moneda: "USD",
@@ -43,6 +44,7 @@ export default function DesarrollosModule() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
   const [detalle, setDetalle] = useState(null); // desarrollo abierto (vista unidades)
+  const [obras, setObras] = useState([]);
 
   async function cargar() {
     if (!orgId) return;
@@ -59,6 +61,13 @@ export default function DesarrollosModule() {
 
   useEffect(() => { cargar(); }, [orgId]);
 
+  useEffect(() => {
+    if (!orgId) return;
+    getObras(orgId)
+      .then((os) => setObras(Array.isArray(os) ? os : []))
+      .catch(() => {});
+  }, [orgId]);
+
   async function guardar() {
     if (!form.nombre.trim()) return;
     setGuardando(true);
@@ -69,6 +78,7 @@ export default function DesarrollosModule() {
         nombre: form.nombre.trim(),
         ubicacion: form.ubicacion.trim(),
         estado: form.estado,
+        obraId: form.obraId || null,
         ...(editandoId ? {} : { creadoEn: new Date().toISOString() }),
       });
       setForm(FORM_DEV_VACIO);
@@ -83,7 +93,7 @@ export default function DesarrollosModule() {
 
   function editar(dev) {
     setEditandoId(dev.id);
-    setForm({ nombre: dev.nombre || "", ubicacion: dev.ubicacion || "", estado: dev.estado || "pozo" });
+    setForm({ nombre: dev.nombre || "", ubicacion: dev.ubicacion || "", estado: dev.estado || "pozo", obraId: dev.obraId || "" });
   }
 
   function cancelarEdicion() {
@@ -160,6 +170,16 @@ export default function DesarrollosModule() {
                 ))}
               </div>
             </div>
+            <div>
+              <label style={S.label}>Obra vinculada (opcional)</label>
+              <select style={S.input} value={form.obraId}
+                onChange={(e) => setForm({ ...form, obraId: e.target.value })}>
+                <option value="">— Sin obra vinculada —</option>
+                {obras.map((o) => (
+                  <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ""}{o.nombre}</option>
+                ))}
+              </select>
+            </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button style={{ ...S.btn("gold"), flex: 1, padding: "8px", cursor: "pointer", opacity: !form.nombre.trim() || guardando ? 0.5 : 1 }}
                 disabled={!form.nombre.trim() || guardando} onClick={guardar}>
@@ -191,6 +211,7 @@ export default function DesarrollosModule() {
                       <div style={{ fontSize: "10px", color: COLORS.muted }}>{dev.id}</div>
                       <div style={{ fontSize: "13px", fontWeight: 700 }}>{dev.nombre}</div>
                       {dev.ubicacion && <div style={{ fontSize: "11px", color: COLORS.muted }}>📍 {dev.ubicacion}</div>}
+                      {dev.obraId && <div style={{ fontSize: "10px", color: COLORS.teal }}>🔗 {(obras.find((o) => o.id === dev.obraId)?.codigo) || dev.obraId}</div>}
                     </div>
                     <span style={S.tag(es.color)}>{es.label.toUpperCase()}</span>
                     <button onClick={() => setDetalle(dev)}

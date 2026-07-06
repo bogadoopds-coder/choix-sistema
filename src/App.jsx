@@ -5,6 +5,7 @@ import ChatModule from "./modules/chat/ChatModule";
 import { PresupuestosModulePrecios } from "./modules/prices/PricesModule";
 import CertificacionesModule from "./modules/certificaciones/CertificacionesModule";
 import ComprasModule from "./modules/compras/ComprasModule";
+import DesarrollosModule from "./modules/desarrollos/DesarrollosModule";
 import { BASE } from "./data/priceBase";
 import { COLORS, FONTS } from "./styles/theme";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
   { id: "precios",     icon: "💲", label: "Base Precios",   sub: "948 ítems + historial" },
+  { id: "desarrollos", icon: "🏢", label: "Desarrollos",    sub: "Inmobiliaria" },
 ];
 
 const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
@@ -141,6 +143,7 @@ function PraxiaApp() {
           {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}
           {activeModule === "compras" && <ComprasModule BASE={BASE} />}
           {activeModule === "precios" && <PresupuestosModulePrecios BASE={BASE} />}
+          {activeModule === "desarrollos" && <DesarrollosModule />}
         </div>
       </div>
 

@@ -12,11 +12,17 @@ const ESTADOS_BUSQUEDA = [
   { id: "estrenar", label: "A estrenar" },
   { id: "usado", label: "Usado" },
 ];
+const ANTIGUEDADES = [
+  { id: "", label: "Sin límite" },
+  { id: "1m", label: "Último mes" },
+  { id: "2m", label: "Últimos 2 meses" },
+  { id: "3m", label: "Últimos 3 meses" },
+];
 function usd(n) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("es-AR");
 }
-const FORM_VACIO = { ubicacion: "", radio: "hasta 10 cuadras", tipologias: [], estadoUnidad: "", m2Min: "", m2Max: "" };
+const FORM_VACIO = { ubicacion: "", radio: "hasta 10 cuadras", tipologias: [], estadoUnidad: "", m2Min: "", m2Max: "", antiguedad: "" };
 // ─── MÓDULO MERCADO: comparables de venta en la zona ────────────────────────
 export default function MercadoModule() {
   const { orgId } = useAuth();
@@ -57,6 +63,7 @@ export default function MercadoModule() {
         radio: form.radio,
         tipologias: form.tipologias,
         estadoUnidad: form.estadoUnidad,
+        antiguedad: form.antiguedad,
         m2Min: form.m2Min ? Number(form.m2Min) : null,
         m2Max: form.m2Max ? Number(form.m2Max) : null,
       }),
@@ -77,6 +84,7 @@ export default function MercadoModule() {
             radio: form.radio,
             tipologias: form.tipologias,
             estadoUnidad: form.estadoUnidad,
+            antiguedad: form.antiguedad,
             m2Min: form.m2Min ? Number(form.m2Min) : null,
             m2Max: form.m2Max ? Number(form.m2Max) : null,
             comparables: datos?.comparables || [],
@@ -161,6 +169,17 @@ export default function MercadoModule() {
                   <button key={es.id} onClick={() => setForm({ ...form, estadoUnidad: es.id })}
                     style={{ ...S.btn(form.estadoUnidad === es.id ? "blue" : undefined, true), padding: "5px 9px", fontSize: "10.5px", cursor: "pointer" }}>
                     {es.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={S.label}>Antigüedad de publicación</label>
+              <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                {ANTIGUEDADES.map((a) => (
+                  <button key={a.id} onClick={() => setForm({ ...form, antiguedad: a.id })}
+                    style={{ ...S.btn(form.antiguedad === a.id ? "blue" : undefined, true), padding: "5px 9px", fontSize: "10.5px", cursor: "pointer" }}>
+                    {a.label}
                   </button>
                 ))}
               </div>

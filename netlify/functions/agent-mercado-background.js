@@ -11,6 +11,7 @@ const SYSTEM = `Sos un analista de mercado inmobiliario argentino. Tu tarea es b
 COMO BUSCAR:
 - Usa la herramienta de busqueda web. Prioriza portales inmobiliarios argentinos: Argenprop, Zonaprop, Inmobusqueda, MercadoLibre Inmuebles, Remax. Si encontras datos utiles en otros portales o inmobiliarias locales de la zona, tambien sirven.
 - Busca avisos de VENTA que coincidan con los parametros (tipologias, estado, rango de m2) dentro del radio pedido. Si en el radio exacto hay pocos resultados, amplia gradualmente y aclaralo en cada comparable (campo "zona").
+- Si el usuario indica una antiguedad maxima de publicacion, priorizala: descarta avisos cuya fecha visible sea mas vieja que ese limite. Muchos portales no muestran fecha de publicacion; si un aviso no tiene fecha visible pero es relevante, podes incluirlo agregando "(sin fecha visible)" en el campo "zona". NUNCA inventes fechas de publicacion.
 - De cada aviso util extrae: direccion o zona aproximada, tipologia, m2, precio publicado, moneda, y la URL de la fuente. Calcula precioM2 = precio / m2 cuando ambos datos esten.
 - REGLA DE ORO: ningun comparable sin URL de fuente. Si no podes citar de donde salio, no lo incluyas. No inventes avisos ni precios. Si un portal no arroja resultados, seguí con otros.
 - Los precios de portales son PRECIOS DE PUBLICACION (lo que se pide), no precios de cierre. Esto va aclarado en el resumen.
@@ -40,7 +41,7 @@ exports.handler = async (event) => {
   } catch (_) {
     return { statusCode: 400, body: "JSON invalido" };
   }
-  const { orgId, jobId, ubicacion, radio, tipologias, estadoUnidad, m2Min, m2Max } = payload;
+  const { orgId, jobId, ubicacion, radio, tipologias, estadoUnidad, m2Min, m2Max, antiguedad } = payload;
   if (!orgId || !jobId || !ubicacion) {
     return { statusCode: 400, body: "Faltan orgId, jobId o ubicacion" };
   }
@@ -61,6 +62,7 @@ exports.handler = async (event) => {
       "Tipologias: " + (Array.isArray(tipologias) && tipologias.length ? tipologias.join(", ") : "todas"),
       "Estado: " + (estadoUnidad || "todos (pozo, a estrenar, usado)"),
       m2Min || m2Max ? "Rango de m2: " + (m2Min || "sin minimo") + " a " + (m2Max || "sin maximo") : null,
+      antiguedad ? "Antiguedad maxima de publicacion: " + ({ "1m": "1 mes", "2m": "2 meses", "3m": "3 meses" }[antiguedad] || antiguedad) : null,
     ].filter(Boolean).join("\n");
     const userContent = "Necesito un estudio de mercado de precios de VENTA con estos criterios:\n\n" +
       criterios +

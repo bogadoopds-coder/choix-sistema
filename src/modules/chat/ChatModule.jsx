@@ -4,6 +4,8 @@ import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras } from "../../services/obrasRepo";
 import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
+import { getEstudios } from "../../services/mercadoRepo";
+import { getFactibilidades } from "../../services/factibilidadRepo";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 
@@ -161,6 +163,8 @@ export default function ChatModule({ initCmd }) {
   const [desarrollosReales, setDesarrollosReales] = useState([]);
   const [clientesReales, setClientesReales] = useState([]);
   const [cobranzasReales, setCobranzasReales] = useState([]);
+  const [estudiosReales, setEstudiosReales] = useState([]);
+  const [factibilidadesReales, setFactibilidadesReales] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +194,14 @@ export default function ChatModule({ initCmd }) {
       try {
         const cobs = await getCobranzas(orgId);
         if (!cancelled) setCobranzasReales(Array.isArray(cobs) ? cobs : []);
+      } catch {}
+      try {
+        const ests = await getEstudios(orgId);
+        if (!cancelled) setEstudiosReales(Array.isArray(ests) ? ests : []);
+      } catch {}
+      try {
+        const facs = await getFactibilidades(orgId);
+        if (!cancelled) setFactibilidadesReales(Array.isArray(facs) ? facs : []);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -314,6 +326,31 @@ export default function ChatModule({ initCmd }) {
         id: p.id, fecha: p.fecha, monto: p.monto,
         devId: p.devId, boletoId: p.boletoId, cuotaId: p.cuotaId, medio: p.medio || "",
       })),
+      estudiosMercado: estudiosReales.map((e) => ({
+        id: e.id,
+        fecha: (e.creadoEn || "").slice(0, 10),
+        ubicacion: e.ubicacion,
+        radio: e.radio || "",
+        tipologias: e.tipologias || [],
+        antiguedad: e.antiguedad || "",
+        resumen: e.resumen || null,
+        comparables: (e.comparables || []).slice(0, 15).map((c) => ({
+          zona: c.zona, tipologia: c.tipologia, m2: c.m2,
+          precio: c.precio, moneda: c.moneda, precioM2: c.precioM2, estado: c.estado,
+        })),
+      })),
+      factibilidades: factibilidadesReales.map((f) => ({
+        id: f.id,
+        fecha: (f.creadoEn || "").slice(0, 10),
+        ubicacion: f.ubicacion,
+        superficie: f.superficie,
+        zona: f.resultado?.zonaDetectada || f.zonaUsuario || null,
+        codigo: f.codigoNombre || "",
+        m2EdificablesEstimados: f.resultado?.m2EdificablesEstimados ?? null,
+        calculo: f.resultado?.calculo || "",
+        indicadores: (f.resultado?.indicadores || []).map((i) => ({ nombre: i.nombre, valor: i.valor })),
+        faltantes: f.resultado?.faltantes || [],
+      })),
     };
     return SYSTEM_PROMPT + `
 
@@ -326,6 +363,8 @@ DATOS REALES DE LA MITAD INMOBILIARIA (desarrollos, unidades y clientes de esta 
 ${JSON.stringify(resumenInmobiliaria, null, 2)}
 
 Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías), clientes, boletos, cuotas o cobranzas, respondé en base a estos datos. Cada boleto incluye cuotas pagadas/pendientes, saldo pendiente y próximo vencimiento — podés responder sobre estado de cobranza, deuda de un cliente o vencimientos que vienen. El campo obraId de un desarrollo, si no es null, indica qué obra lo construye — podés cruzar costos de obra con el desarrollo. IMPORTANTE sobre lo que NO existe todavía: el recálculo de cuotas por índice CAC NO está activo (los montos ajustados son iguales a los originales, pendiente de validación contable) y NO existe motor de cálculo costo→precio por m². Si piden algo de eso, aclaralo y ofrecé lo que sí podés analizar.
+
+Los estudiosMercado son busquedas de precios de venta de la zona hechas por el modulo Mercado (portales inmobiliarios, con fecha): usalos para responder sobre valores de m2 de una zona, siempre aclarando que son precios de publicacion (no de cierre) y la fecha del estudio. Las factibilidades son analisis de viabilidad de terrenos hechos por el modulo Factibilidad leyendo el codigo de planeamiento: usalas para responder sobre indicadores urbanisticos (FOT, FOS, alturas) y m2 edificables estimados de los terrenos analizados, aclarando que son estimaciones indicativas que no reemplazan la prefactibilidad municipal ni al arquitecto. Si preguntan por una zona o terreno SIN estudio previo, indicá que pueden generarlo en los modulos Mercado o Factibilidad — no inventes valores de mercado ni indicadores.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

@@ -281,6 +281,12 @@ export default function ChatModule({ initCmd }) {
       nombre: o.nombre,
       cliente: o.cliente,
       iccPct: o.iccPct,
+      montoPresupuesto: Array.isArray(o.items)
+        ? Math.round(o.items.reduce((s, i) => s + (Number(i.cantPresup) || 0) * (Number(i.precioCustom ?? i.precioBase) || 0), 0))
+        : 0,
+      montoConsumido: Array.isArray(o.items)
+        ? Math.round(o.items.reduce((s, i) => s + (Number(i.consumidoReal) || 0) * (Number(i.precioCustom ?? i.precioBase) || 0), 0))
+        : 0,
       totalItems: Array.isArray(o.items) ? o.items.length : 0,
       itemsSinRendimientos: Array.isArray(o.items)
         ? o.items.filter((i) => i.rendimientos === null || i.rendimientos === undefined).length
@@ -359,6 +365,8 @@ DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMP
 ${JSON.stringify(resumen, null, 2)}
 
 Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.
+
+montoPresupuesto y montoConsumido son la suma de cantidad x precio unitario de los items cargados de cada obra, expresados EN PESOS ARGENTINOS segun los precios vigentes en el sistema. Si el usuario pide valores en dolares o un analisis de costos de inversion, pedile el tipo de cambio a aplicar — nunca lo inventes. Para costo por m2, dividí montoPresupuesto por los m2 que el usuario indique o por la superficie de las unidades del desarrollo vinculado (obraId) si estan cargadas.
 
 DATOS REALES DE LA MITAD INMOBILIARIA (desarrollos, unidades y clientes de esta organización — misma regla: fuente de verdad, no inventes):
 ${JSON.stringify(resumenInmobiliaria, null, 2)}

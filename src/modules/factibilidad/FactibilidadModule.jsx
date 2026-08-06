@@ -8,7 +8,7 @@ import {
   getCodigos, getCodigoConTexto, saveCodigo, deleteCodigo,
   getFactibilidades, saveFactibilidad, deleteFactibilidad,
 } from "../../services/factibilidadRepo";
-const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", codId: "" };
+const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", codIds: [] };
 function num(n) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("es-AR");
@@ -101,21 +101,29 @@ export default function FactibilidadModule() {
     if (!ok) return;
     try {
       await deleteCodigo(orgId, cod.id);
-      if (form.codId === cod.id) setForm({ ...form, codId: "" });
+      if (form.codIds.includes(cod.id)) setForm({ ...form, codIds: form.codIds.filter((x) => x !== cod.id) });
       await cargar();
     } catch (e) {
       setError("No se pudo eliminar el código.");
     }
   }
   // ── Analizar terreno ──
-  const puedeAnalizar = form.ubicacion.trim() && Number(form.superficie) > 0 && form.codId && !analizando;
+  const puedeAnalizar = form.ubicacion.trim() && Number(form.superficie) > 0 && form.codIds.length > 0 && !analizando;
   async function analizar() {
     if (!puedeAnalizar) return;
     setAnalizando(true);
     setError("");
     try {
-      const cod = await getCodigoConTexto(orgId, form.codId);
-      if (!cod?.texto) throw new Error("No se pudo leer el código seleccionado.");
+      const cods = [];
+      for (const id of form.codIds) {
+        const c = await getCodigoConTexto(orgId, id);
+        if (c?.texto) cods.push(c);
+      }
+      if (cods.length === 0) throw new Error("No se pudo leer ningún código seleccionado.");
+      const textoCombinado = cods
+        .map((c) => `===== DOCUMENTO: ${c.nombre} =====\n${c.texto}`)
+        .join("\n\n");
+      const nombresCombinados = cods.map((c) => c.nombre).join(" + ");
       const jobId = "job-" + Date.now();
       fetch("/.netlify/functions/agent-factibilidad-background", {
         method: "POST",
@@ -130,7 +138,7 @@ export default function FactibilidadModule() {
             fondo: form.fondo ? Number(form.fondo) : null,
             zona: form.zona.trim() || null,
           },
-          codigoTexto: cod.texto,
+          codigoTexto: textoCombinado,
         }),
       }).catch(() => {});
       const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
@@ -150,8 +158,8 @@ export default function FactibilidadModule() {
               frente: form.frente ? Number(form.frente) : null,
               fondo: form.fondo ? Number(form.fondo) : null,
               zonaUsuario: form.zona.trim() || null,
-              codigoId: form.codId,
-              codigoNombre: cod.nombre || "",
+              codigoId: form.codIds.join("+"),
+              codigoNombre: nombresCombinados,
               resultado: datos,
               resultadoTexto: !datos ? (j.resultadoTexto || "") : "",
             });
@@ -237,14 +245,24 @@ export default function FactibilidadModule() {
                 </div>
               </div>
               <div>
-                <label style={S.label}>Código de planeamiento</label>
-                <select style={S.input} value={form.codId}
-                  onChange={(e) => setForm({ ...form, codId: e.target.value })}>
-                  <option value="">— Elegir de la biblioteca —</option>
+                <label style={S.label}>Códigos de planeamiento (podés marcar varios)</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                   {codigos.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nombre}{c.municipio ? ` (${c.municipio})` : ""}</option>
+                    <label key={c.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={form.codIds.includes(c.id)}
+                        onChange={(e) => {
+                          const codIds = e.target.checked
+                            ? [...form.codIds, c.id]
+                            : form.codIds.filter((x) => x !== c.id);
+                          setForm({ ...form, codIds });
+                        }}
+                      />
+                      <span>{c.nombre}{c.municipio ? ` (${c.municipio})` : ""}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
                 {codigos.length === 0 && (
                   <div style={{ fontSize: "10px", color: COLORS.amarillo, marginTop: "3px" }}>
                     Primero subí un código a la biblioteca (abajo).

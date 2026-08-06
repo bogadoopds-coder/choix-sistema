@@ -6,6 +6,7 @@ import { getObras } from "../../services/obrasRepo";
 import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
 import { getEstudios } from "../../services/mercadoRepo";
 import { getFactibilidades } from "../../services/factibilidadRepo";
+import { exportarPDF, esc } from "../../utils/exportPdf";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 
@@ -513,6 +514,19 @@ ${attachedFile.content}
             )}
             <div style={{ maxWidth: "85%", background: msg.role === "user" ? COLORS.tealDim : COLORS.card, border: `1px solid ${msg.role === "user" ? `${COLORS.teal}40` : COLORS.border}`, borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", padding: "10px 14px" }}>
               {msg.role === "user" ? <div style={{ fontSize: "0.82rem", color: COLORS.text }}>{msg.content}</div> : <MarkdownRenderer text={msg.content} />}
+              {msg.role === "assistant" && msg.content && (
+                <div style={{ marginTop: "6px" }}>
+                  <button
+                    onClick={() => exportarPDF({
+                      titulo: "Informe del Agente IA",
+                      subtitulo: `Generado el ${new Date().toLocaleDateString("es-AR")} · Praxia`,
+                      contenidoHTML: `<pre>${esc(typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content))}</pre>`,
+                    })}
+                    style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: "4px", color: COLORS.muted, cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}>
+                    🖨 Exportar PDF
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}

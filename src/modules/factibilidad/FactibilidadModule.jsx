@@ -8,6 +8,7 @@ import {
   getCodigos, getCodigoConTexto, saveCodigo, deleteCodigo,
   getFactibilidades, saveFactibilidad, deleteFactibilidad,
 } from "../../services/factibilidadRepo";
+import { exportarPDF, esc } from "../../utils/exportPdf";
 const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", codIds: [] };
 function num(n) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
@@ -340,6 +341,32 @@ export default function FactibilidadModule() {
                         style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
                         {abierto === fac.id ? "Ocultar" : "Ver detalle"}
                       </button>
+                      {fac.resultado && (
+                        <button
+                          onClick={() => {
+                            const r = fac.resultado;
+                            const indicadoresHTML = Array.isArray(r.indicadores) && r.indicadores.length > 0
+                              ? `<h2>Indicadores (con fuente en el código)</h2><table><tr><th>Indicador</th><th>Valor</th><th>Fuente</th></tr>${r.indicadores.map((i) => `<tr><td>${esc(i.nombre)}</td><td>${esc(i.valor)}</td><td>${esc(i.fuente)}</td></tr>`).join("")}</table>`
+                              : "";
+                            exportarPDF({
+                              titulo: `Factibilidad — ${fac.ubicacion}`,
+                              subtitulo: `${fac.id} · ${(fac.creadoEn || "").slice(0, 10)} · ${fac.superficie} m²${fac.frente ? ` · frente ${fac.frente} m` : ""}${fac.fondo ? ` · fondo ${fac.fondo} m` : ""} · Código: ${fac.codigoNombre}`,
+                              contenidoHTML: `
+                                <h2>Resultado</h2>
+                                <p><b>Zona:</b> ${esc(r.zonaDetectada || fac.zonaUsuario || "s/d")} · <b>m² edificables estimados:</b> ${esc(r.m2EdificablesEstimados ?? "s/d")}</p>
+                                ${r.calculo ? `<p><b>Cálculo:</b> ${esc(r.calculo)}</p>` : ""}
+                                ${indicadoresHTML}
+                                ${Array.isArray(r.usosPermitidos) && r.usosPermitidos.length ? `<h2>Usos</h2><p>${esc(r.usosPermitidos.join(", "))}</p>` : ""}
+                                ${r.observaciones ? `<h2>Observaciones</h2><p>${esc(r.observaciones)}</p>` : ""}
+                                ${Array.isArray(r.faltantes) && r.faltantes.length ? `<h2>Datos faltantes / a verificar</h2><ul>${r.faltantes.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
+                                ${r.advertencia ? `<div class="alerta">⚠ ${esc(r.advertencia)}</div>` : ""}
+                              `,
+                            });
+                          }}
+                          style={{ ...S.btn("gold", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
+                          🖨 PDF
+                        </button>
+                      )}
                       <button onClick={() => borrarAnalisis(fac)}
                         style={{ background: "none", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px", padding: "0 3px" }}>✕</button>
                     </div>

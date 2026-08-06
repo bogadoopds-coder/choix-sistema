@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { getEstudios, saveEstudio, deleteEstudio } from "../../services/mercadoRepo";
+import { exportarPDF, esc } from "../../utils/exportPdf";
 const RADIOS = ["mismas cuadras", "hasta 10 cuadras", "barrio", "toda la ciudad"];
 const TIPOLOGIAS = ["1amb", "2amb", "3amb", "4amb+", "local"];
 const ESTADOS_BUSQUEDA = [
@@ -232,6 +233,28 @@ export default function MercadoModule() {
                       <button onClick={() => setAbierto(abierto === est.id ? null : est.id)}
                         style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
                         {abierto === est.id ? "Ocultar" : "Ver detalle"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const res = est.resumen || {};
+                          const comps = Array.isArray(est.comparables) ? est.comparables : [];
+                          exportarPDF({
+                            titulo: `Estudio de mercado — ${est.ubicacion}`,
+                            subtitulo: `${est.id} · ${(est.creadoEn || "").slice(0, 10)} · radio ${est.radio || "s/d"} · tipologías: ${(est.tipologias || []).join(", ") || "s/d"}`,
+                            contenidoHTML: `
+                              <h2>Resumen estadístico</h2>
+                              <p><b>Muestras:</b> ${esc(res.muestras ?? comps.length)} · <b>Mínimo:</b> ${esc(res.min ?? "s/d")} · <b>Mediana:</b> ${esc(res.mediana ?? "s/d")} · <b>Máximo:</b> ${esc(res.max ?? "s/d")} (USD/m², precios de publicación)</p>
+                              ${res.observaciones ? `<p>${esc(res.observaciones)}</p>` : ""}
+                              <h2>Comparables</h2>
+                              <table><tr><th>Zona</th><th>Tipología</th><th>m²</th><th>Precio</th><th>USD/m²</th><th>Estado</th><th>Fuente</th></tr>
+                              ${comps.map((c) => `<tr><td>${esc(c.zona)}</td><td>${esc(c.tipologia)}</td><td>${esc(c.m2)}</td><td>${esc(c.moneda || "")} ${esc(c.precio ?? "s/d")}</td><td>${esc(c.precioM2 ?? "s/d")}</td><td>${esc(c.estado || "")}</td><td>${esc(c.fuente || "")}</td></tr>`).join("")}
+                              </table>
+                              ${res.advertencia ? `<div class="alerta">⚠ ${esc(res.advertencia)}</div>` : ""}
+                            `,
+                          });
+                        }}
+                        style={{ ...S.btn("gold", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
+                        🖨 PDF
                       </button>
                       <button onClick={() => borrar(est)}
                         style={{ background: "none", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px", padding: "0 3px" }}>

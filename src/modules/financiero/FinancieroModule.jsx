@@ -181,7 +181,7 @@ export default function FinancieroModule() {
 
           {tab === "egresos" && <TabEgresos orgId={orgId} devId={devId} contratos={contratos} fmt={fmt} />}
           {tab === "ingresos" && <TabIngresos orgId={orgId} devId={devId} fmt={fmt} />}
-          {tab === "arqueo" && <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>⚖️ Arqueo — próxima pieza. Va a consolidar ingresos y egresos y mostrar la posición financiera del desarrollo.</div>}
+          {tab === "arqueo" && <TabArqueo orgId={orgId} devId={devId} fmt={fmt} />}
         </>
       )}
     </div>
@@ -623,6 +623,136 @@ function TabIngresos({ orgId, devId, fmt }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TabArqueo({ orgId, devId, fmt }) {
+  const [egresos, setEgresos] = useState([]);
+  const [ingresos, setIngresos] = useState([]);
+  const [tc, setTc] = useState("");
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    if (!orgId || !devId) { setEgresos([]); setIngresos([]); setCargando(false); return; }
+    setCargando(true);
+    Promise.all([getEgresos(orgId, devId), getIngresos(orgId, devId)])
+      .then(([egs, ings]) => { setEgresos(egs); setIngresos(ings); })
+      .catch(() => { setEgresos([]); setIngresos([]); })
+      .finally(() => setCargando(false));
+  }, [orgId, devId]);
+
+  const suma = (arr, mon) => arr.filter((x) => x.moneda === mon).reduce((s, x) => s + (Number(x.monto) || 0), 0);
+  const sumaFiscal = (arr, mon, estado) => arr.filter((x) => x.moneda === mon && x.estadoFiscal === estado).reduce((s, x) => s + (Number(x.monto) || 0), 0);
+
+  const ingARS = suma(ingresos, "ARS"), ingUSD = suma(ingresos, "USD");
+  const egrARS = suma(egresos, "ARS"), egrUSD = suma(egresos, "USD");
+  const posARS = ingARS - egrARS, posUSD = ingUSD - egrUSD;
+
+  const tcNum = Number(tc) > 0 ? Number(tc) : null;
+
+  // Consolidado en USD (convierte ARS a USD con el TC)
+  const consolidado = tcNum
+    ? { ing: ingUSD + ingARS / tcNum, egr: egrUSD + egrARS / tcNum, pos: posUSD + posARS / tcNum }
+    : null;
+
+  // Egresos por categoría (consolidado a USD si hay TC, si no muestra por moneda)
+  const categorias = [...new Set(egresos.map((e) => e.categoria))];
+  const egrPorCategoria = categorias.map((cat) => {
+    const arr = egresos.filter((e) => e.categoria === cat);
+    const ars = arr.filter((e) => e.moneda === "ARS").reduce((s, e) => s + (Number(e.monto) || 0), 0);
+    const usd = arr.filter((e) => e.moneda === "USD").reduce((s, e) => s + (Number(e.monto) || 0), 0);
+    const usdTotal = tcNum ? usd + ars / tcNum : null;
+    return { cat, ars, usd, usdTotal };
+  }).sort((a, b) => {
+    if (a.usdTotal != null && b.usdTotal != null) return b.usdTotal - a.usdTotal;
+    return (b.ars + b.usd) - (a.ars + a.usd);
+  });
+
+  const nombreCat = (id) => (CATEGORIAS_EGRESO.find((c) => c.id === id)?.label || id);
+
+  // Exposición documental (todo el movimiento, ambas monedas, a USD si hay TC)
+  const totalMovimiento = (estado) => {
+    const eA = sumaFiscal(egresos, "ARS", estado) + sumaFiscal(ingresos, "ARS", estado);
+    const eU = sumaFiscal(egresos, "USD", estado) + sumaFiscal(ingresos, "USD", estado);
+    return { ars: eA, usd: eU };
+  };
+  const conF = totalMovimiento("con_factura"), sinF = totalMovimiento("sin_factura"), pend = totalMovimiento("pendiente");
+
+  if (cargando) return <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>Calculando arqueo...</div>;
+
+  const Bloque = ({ titulo, ing, egr, pos, mon }) => (
+    <div style={{ ...S.panel, marginBottom: "12px" }}>
+      <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "8px" }}>{titulo}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+        <span style={{ color: COLORS.muted }}>Ingresos</span><span style={{ color: COLORS.verde, fontWeight: 600 }}>{fmt(ing, mon)}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+        <span style={{ color: COLORS.muted }}>Egresos</span><span style={{ color: COLORS.rojo, fontWeight: 600 }}>− {fmt(egr, mon)}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: "4px" }}>
+        <span style={{ color: COLORS.text, fontWeight: 700 }}>Posición</span>
+        <span style={{ color: pos >= 0 ? COLORS.verde : COLORS.rojo, fontWeight: 800 }}>{fmt(pos, mon)}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+        <Bloque titulo="En Pesos (ARS)" ing={ingARS} egr={egrARS} pos={posARS} mon="ARS" />
+        <Bloque titulo="En Dólares (USD)" ing={ingUSD} egr={egrUSD} pos={posUSD} mon="USD" />
+      </div>
+
+      <div style={{ ...S.panel, marginBottom: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: consolidado ? "10px" : "0" }}>
+          <span style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold }}>Consolidado en USD</span>
+          <label style={{ fontSize: "11px", color: COLORS.muted }}>TC $/USD:</label>
+          <input style={{ ...S.input, width: "110px", margin: 0 }} type="number" value={tc} onChange={(e) => setTc(e.target.value)} placeholder="ej 1480" />
+        </div>
+        {consolidado ? (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+              <span style={{ color: COLORS.muted }}>Ingresos totales</span><span style={{ color: COLORS.verde, fontWeight: 600 }}>{fmt(Math.round(consolidado.ing), "USD")}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+              <span style={{ color: COLORS.muted }}>Egresos totales</span><span style={{ color: COLORS.rojo, fontWeight: 600 }}>− {fmt(Math.round(consolidado.egr), "USD")}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: "4px" }}>
+              <span style={{ color: COLORS.text, fontWeight: 800 }}>RESULTADO</span>
+              <span style={{ color: consolidado.pos >= 0 ? COLORS.verde : COLORS.rojo, fontWeight: 800 }}>{fmt(Math.round(consolidado.pos), "USD")}</span>
+            </div>
+            <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Consolidado al TC ${Number(tc).toLocaleString("es-AR")} que ingresaste. Es un valor de referencia — el TC real de cada operación puede diferir.</div>
+          </div>
+        ) : (
+          <div style={{ fontSize: "12px", color: COLORS.muted }}>Ingresá un tipo de cambio para ver el resultado consolidado en una sola moneda.</div>
+        )}
+      </div>
+
+      {/* Exposición documental */}
+      <div style={{ ...S.panel, marginBottom: "12px" }}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.text, marginBottom: "8px" }}>Exposición documental (todo el movimiento)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", fontSize: "11px" }}>
+          <div><div style={{ color: COLORS.verde, fontWeight: 600 }}>● Con factura</div><div style={{ color: COLORS.muted }}>{fmt(conF.ars, "ARS")}</div><div style={{ color: COLORS.muted }}>{fmt(conF.usd, "USD")}</div></div>
+          <div><div style={{ color: COLORS.amarillo, fontWeight: 600 }}>● Sin factura</div><div style={{ color: COLORS.muted }}>{fmt(sinF.ars, "ARS")}</div><div style={{ color: COLORS.muted }}>{fmt(sinF.usd, "USD")}</div></div>
+          <div><div style={{ color: COLORS.muted, fontWeight: 600 }}>● Pendiente</div><div style={{ color: COLORS.muted }}>{fmt(pend.ars, "ARS")}</div><div style={{ color: COLORS.muted }}>{fmt(pend.usd, "USD")}</div></div>
+        </div>
+      </div>
+
+      {/* Egresos por categoría */}
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.text, marginBottom: "8px" }}>Egresos por categoría</div>
+        {egrPorCategoria.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Sin egresos cargados.</div>}
+        {egrPorCategoria.map((c) => (
+          <div key={c.cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${COLORS.border}`, fontSize: "12px" }}>
+            <span style={{ color: COLORS.text }}>{nombreCat(c.cat)}</span>
+            <span style={{ color: COLORS.muted, textAlign: "right" }}>
+              {c.ars > 0 ? fmt(c.ars, "ARS") : ""}{c.ars > 0 && c.usd > 0 ? " + " : ""}{c.usd > 0 ? fmt(c.usd, "USD") : ""}
+              {c.usdTotal != null ? <span style={{ color: COLORS.gold }}> · ≈{fmt(Math.round(c.usdTotal), "USD")}</span> : null}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

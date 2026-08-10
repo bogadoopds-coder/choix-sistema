@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
+import { db } from "../../firebase";
 import { getDesarrollos, getClientes } from "../../services/desarrollosRepo";
 import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso } from "../../services/financieroRepo";
 
@@ -633,6 +635,9 @@ function TabArqueo({ orgId, devId, fmt }) {
   const [ingresos, setIngresos] = useState([]);
   const [tc, setTc] = useState("");
   const [cargando, setCargando] = useState(true);
+  const [analizando, setAnalizando] = useState(false);
+  const [informe, setInforme] = useState("");
+  const [errorIA, setErrorIA] = useState("");
 
   useEffect(() => {
     if (!orgId || !devId) { setEgresos([]); setIngresos([]); setCargando(false); return; }
@@ -679,6 +684,43 @@ function TabArqueo({ orgId, devId, fmt }) {
     return { ars: eA, usd: eU };
   };
   const conF = totalMovimiento("con_factura"), sinF = totalMovimiento("sin_factura"), pend = totalMovimiento("pendiente");
+
+  function analizarRiesgo() {
+    setErrorIA(""); setInforme(""); setAnalizando(true);
+    const jobId = "job-" + Date.now();
+    const arqueo = {
+      contratos: (egresos.length || ingresos.length) ? undefined : undefined, // placeholder
+      posicionARS: { ingresos: ingARS, egresos: egrARS, posicion: posARS },
+      posicionUSD: { ingresos: ingUSD, egresos: egrUSD, posicion: posUSD },
+      egresosPorCategoria: egrPorCategoria.map((c) => ({ categoria: c.cat, ars: c.ars, usd: c.usd })),
+      contratosDetalle: [],
+    };
+    // Enriquecer con contratos y pagado/resta desde los egresos ya cargados
+    const contratosMap = {};
+    egresos.forEach((e) => {
+      if (e.categoria === "contratista" && e.contratoId) {
+        contratosMap[e.contratoId] = (contratosMap[e.contratoId] || 0) + (Number(e.monto) || 0);
+      }
+    });
+    arqueo.exposicionDocumental = {
+      conFactura: { ars: conF.ars, usd: conF.usd },
+      sinFactura: { ars: sinF.ars, usd: sinF.usd },
+      pendiente: { ars: pend.ars, usd: pend.usd },
+    };
+    fetch("/.netlify/functions/agent-financiero-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgId, jobId, desarrollo: devId, arqueo, tc: tcNum || null }),
+    }).catch(() => {});
+    const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
+    const unsub = onSnapshot(jobRef, (snap) => {
+      const j = snap.data();
+      if (!j) return;
+      if (j.estado === "listo") { unsub(); setInforme(j.resultado || "(sin respuesta)"); setAnalizando(false); }
+      else if (j.estado === "error") { unsub(); setErrorIA(j.detalle || "Error en el análisis."); setAnalizando(false); }
+    });
+    setTimeout(() => { try { unsub(); } catch (_) {} if (analizando) setAnalizando(false); }, 90000);
+  }
 
   if (cargando) return <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>Calculando arqueo...</div>;
 
@@ -753,6 +795,21 @@ function TabArqueo({ orgId, devId, fmt }) {
             </span>
           </div>
         ))}
+      </div>
+
+      <div style={{ ...S.panel, marginTop: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+          <span style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold }}>🤖 Análisis de riesgo (IA)</span>
+          <button style={{ ...S.btn(), cursor: analizando ? "wait" : "pointer" }} disabled={analizando} onClick={analizarRiesgo}>
+            {analizando ? "Analizando..." : "Analizar salud financiera"}
+          </button>
+        </div>
+        {errorIA && <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 10px", marginTop: "8px", fontSize: "12px", color: COLORS.rojo }}>{errorIA}</div>}
+        {informe && (
+          <div style={{ marginTop: "10px", padding: "12px", background: COLORS.bg, borderRadius: "6px", border: `1px solid ${COLORS.border}`, fontSize: "12.5px", lineHeight: 1.55, color: COLORS.text, whiteSpace: "pre-wrap" }}>
+            {informe}
+          </div>
+        )}
       </div>
     </div>
   );

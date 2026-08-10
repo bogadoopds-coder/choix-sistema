@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
-import { getDesarrollos } from "../../services/desarrollosRepo";
-import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso } from "../../services/financieroRepo";
+import { getDesarrollos, getClientes } from "../../services/desarrollosRepo";
+import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso } from "../../services/financieroRepo";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
@@ -180,7 +180,7 @@ export default function FinancieroModule() {
           )}
 
           {tab === "egresos" && <TabEgresos orgId={orgId} devId={devId} contratos={contratos} fmt={fmt} />}
-          {tab === "ingresos" && <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>📥 Ingresos — próxima pieza. Acá vas a cargar aportes de inversores, reservas y cobranzas de clientes.</div>}
+          {tab === "ingresos" && <TabIngresos orgId={orgId} devId={devId} fmt={fmt} />}
           {tab === "arqueo" && <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>⚖️ Arqueo — próxima pieza. Va a consolidar ingresos y egresos y mostrar la posición financiera del desarrollo.</div>}
         </>
       )}
@@ -412,6 +412,213 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
                 <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.text }}>{fmt(e.monto, e.moneda)}</span>
                 <button style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => editar(e)}>Editar</button>
                 <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(e)}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CATEGORIAS_INGRESO = [
+  { id: "inversor", label: "Inversor" },
+  { id: "venta_cuota", label: "Venta / Cuota" },
+  { id: "reserva", label: "Reserva" },
+  { id: "otro", label: "Otro" },
+];
+
+const FORM_ING_VACIO = { categoria: "venta_cuota", clienteId: "", nombreLibre: "", concepto: "", monto: "", moneda: "ARS", estadoFiscal: "con_factura", fecha: new Date().toISOString().slice(0, 10), medioPago: "transferencia", notas: "" };
+
+function TabIngresos({ orgId, devId, fmt }) {
+  const [ingresos, setIngresos] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [form, setForm] = useState(FORM_ING_VACIO);
+  const [editandoId, setEditandoId] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!orgId || !devId) { setIngresos([]); return; }
+    getIngresos(orgId, devId).then(setIngresos).catch(() => setIngresos([]));
+  }, [orgId, devId]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getClientes(orgId).then(setClientes).catch(() => setClientes([]));
+  }, [orgId]);
+
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  const usaCliente = (cat) => cat === "venta_cuota" || cat === "reserva";
+
+  async function guardar() {
+    setError("");
+    if (!form.concepto.trim()) { setError("El ingreso necesita un concepto."); return; }
+    if (!(Number(form.monto) > 0)) { setError("El monto debe ser mayor a cero."); return; }
+    if (usaCliente(form.categoria) && !form.clienteId) { setError("Elegí el cliente de este ingreso."); return; }
+    if (!usaCliente(form.categoria) && !form.nombreLibre.trim()) { setError("Cargá el nombre (inversor u origen del ingreso)."); return; }
+    setGuardando(true);
+    try {
+      await saveIngreso(orgId, devId, {
+        ...(editandoId ? { id: editandoId } : {}),
+        categoria: form.categoria,
+        clienteId: usaCliente(form.categoria) ? form.clienteId : "",
+        nombreLibre: usaCliente(form.categoria) ? "" : form.nombreLibre.trim(),
+        concepto: form.concepto.trim(),
+        monto: Number(form.monto),
+        moneda: form.moneda,
+        estadoFiscal: form.estadoFiscal,
+        fecha: form.fecha,
+        medioPago: form.medioPago,
+        notas: form.notas.trim(),
+        creadoEn: new Date().toISOString(),
+      });
+      setForm(FORM_ING_VACIO); setEditandoId(null);
+      setIngresos(await getIngresos(orgId, devId));
+    } catch (e) { setError("No se pudo guardar: " + e.message); }
+    setGuardando(false);
+  }
+
+  function editar(i) {
+    setEditandoId(i.id);
+    setForm({ categoria: i.categoria, clienteId: i.clienteId || "", nombreLibre: i.nombreLibre || "",
+      concepto: i.concepto, monto: String(i.monto), moneda: i.moneda, estadoFiscal: i.estadoFiscal,
+      fecha: i.fecha, medioPago: i.medioPago, notas: i.notas || "" });
+  }
+
+  async function borrar(i) {
+    if (!window.confirm(`¿Borrar el ingreso "${i.concepto}"?`)) return;
+    try { await deleteIngreso(orgId, devId, i.id); setIngresos(await getIngresos(orgId, devId)); }
+    catch (e) { setError("No se pudo borrar: " + e.message); }
+  }
+
+  const nombreCliente = (id) => clientes.find((c) => c.id === id)?.nombre || "(cliente borrado)";
+  const nombreCategoria = (id) => CATEGORIAS_INGRESO.find((c) => c.id === id)?.label || id;
+  const labelFiscal = (id) => ESTADOS_FISCAL.find((f) => f.id === id)?.label || id;
+  const colorFiscal = (id) => id === "con_factura" ? COLORS.verde : id === "sin_factura" ? COLORS.amarillo : COLORS.muted;
+
+  const suma = (arr) => arr.reduce((s, i) => s + (Number(i.monto) || 0), 0);
+  const resumenMoneda = (mon) => {
+    const arr = ingresos.filter((i) => i.moneda === mon);
+    return {
+      total: suma(arr),
+      conF: suma(arr.filter((i) => i.estadoFiscal === "con_factura")),
+      sinF: suma(arr.filter((i) => i.estadoFiscal === "sin_factura")),
+      pend: suma(arr.filter((i) => i.estadoFiscal === "pendiente")),
+    };
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
+          {editandoId ? "Editar ingreso" : "Nuevo ingreso"}
+        </div>
+        {error && <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 10px", marginBottom: "10px", fontSize: "12px", color: COLORS.rojo }}>{error}</div>}
+
+        <label style={S.label}>Categoría</label>
+        <select style={S.input} value={form.categoria} onChange={(e) => set("categoria", e.target.value)}>
+          {CATEGORIAS_INGRESO.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+
+        {usaCliente(form.categoria) ? (
+          <>
+            <label style={S.label}>Cliente</label>
+            <select style={S.input} value={form.clienteId} onChange={(e) => set("clienteId", e.target.value)}>
+              <option value="">— Elegir cliente —</option>
+              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            {clientes.length === 0 && <div style={{ fontSize: "11px", color: COLORS.amarillo, marginTop: "3px" }}>No hay clientes cargados. Cargalos en el módulo 👥 Clientes.</div>}
+          </>
+        ) : (
+          <>
+            <label style={S.label}>{form.categoria === "inversor" ? "Inversor" : "Origen"}</label>
+            <input style={S.input} value={form.nombreLibre} onChange={(e) => set("nombreLibre", e.target.value)} placeholder="Ej: Aporte Juan Pérez" />
+          </>
+        )}
+
+        <label style={S.label}>Concepto</label>
+        <input style={S.input} value={form.concepto} onChange={(e) => set("concepto", e.target.value)} placeholder="Ej: Cuota 3 depto 2B" />
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Monto</label>
+            <input style={S.input} type="number" value={form.monto} onChange={(e) => set("monto", e.target.value)} placeholder="0" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Moneda</label>
+            <select style={S.input} value={form.moneda} onChange={(e) => set("moneda", e.target.value)}>
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+
+        <label style={S.label}>Estado fiscal</label>
+        <select style={S.input} value={form.estadoFiscal} onChange={(e) => set("estadoFiscal", e.target.value)}>
+          {ESTADOS_FISCAL.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Fecha</label>
+            <input style={S.input} type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Medio</label>
+            <select style={S.input} value={form.medioPago} onChange={(e) => set("medioPago", e.target.value)}>
+              <option value="transferencia">Transferencia</option>
+              <option value="efectivo">Efectivo</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+        </div>
+
+        <label style={S.label}>Notas</label>
+        <input style={S.input} value={form.notas} onChange={(e) => set("notas", e.target.value)} placeholder="Opcional" />
+
+        <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+          <button style={{ ...S.btn(), cursor: "pointer" }} disabled={guardando} onClick={guardar}>
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar ingreso"}
+          </button>
+          {editandoId && <button style={{ ...S.btn("blue", true), cursor: "pointer" }} onClick={() => { setEditandoId(null); setForm(FORM_ING_VACIO); setError(""); }}>Cancelar</button>}
+        </div>
+      </div>
+
+      <div>
+        {["ARS", "USD"].map((mon) => {
+          const r = resumenMoneda(mon);
+          if (r.total === 0) return null;
+          return (
+            <div key={mon} style={{ ...S.panel, marginBottom: "10px" }}>
+              <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.text, marginBottom: "6px" }}>Total ingresos {mon}: {fmt(r.total, mon)}</div>
+              <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", fontSize: "11px" }}>
+                <span style={{ color: COLORS.verde }}>● Con factura: {fmt(r.conF, mon)}</span>
+                <span style={{ color: COLORS.amarillo }}>● Sin factura: {fmt(r.sinF, mon)}</span>
+                <span style={{ color: COLORS.muted }}>● Pendiente: {fmt(r.pend, mon)}</span>
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={S.panel}>
+          <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>Ingresos ({ingresos.length})</div>
+          {ingresos.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Todavía no cargaste ingresos.</div>}
+          {ingresos.slice().sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).map((i) => (
+            <div key={i.id} style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "8px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: COLORS.text }}>
+                  {i.concepto} <span style={{ color: COLORS.muted, fontWeight: 400 }}>· {i.clienteId ? nombreCliente(i.clienteId) : i.nombreLibre}</span>
+                </div>
+                <div style={{ fontSize: "11px", color: COLORS.muted }}>
+                  {nombreCategoria(i.categoria)} · {i.fecha} · {i.medioPago} · <span style={{ color: colorFiscal(i.estadoFiscal) }}>{labelFiscal(i.estadoFiscal)}</span>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.verde }}>{fmt(i.monto, i.moneda)}</span>
+                <button style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => editar(i)}>Editar</button>
+                <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(i)}>✕</button>
               </div>
             </div>
           ))}

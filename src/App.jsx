@@ -9,6 +9,7 @@ import DesarrollosModule from "./modules/desarrollos/DesarrollosModule";
 import ClientesModule from "./modules/clientes/ClientesModule";
 import MercadoModule from "./modules/mercado/MercadoModule";
 import FactibilidadModule from "./modules/factibilidad/FactibilidadModule";
+import FinancieroModule from "./modules/financiero/FinancieroModule";
 import { BASE } from "./data/priceBase";
 import { COLORS, FONTS } from "./styles/theme";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
   { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
   { id: "precios",     icon: "💲", label: "Base Precios",   sub: "948 ítems + historial" },
+  { id: "financiero",  icon: "💰", label: "Salud Financiera", sub: "Arqueo de obra" },
 ];
 
 const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };
@@ -153,6 +155,7 @@ function PraxiaApp() {
           {activeModule === "clientes" && <ClientesModule />}
           {activeModule === "mercado" && <MercadoModule />}
           {activeModule === "factibilidad" && <FactibilidadModule />}
+          {activeModule === "financiero" && <FinancieroModule />}
         </div>
       </div>
 

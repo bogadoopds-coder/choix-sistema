@@ -6,6 +6,7 @@ import { getObras } from "../../services/obrasRepo";
 import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
 import { getEstudios } from "../../services/mercadoRepo";
 import { getFactibilidades } from "../../services/factibilidadRepo";
+import { getContratos, getEgresos, getIngresos } from "../../services/financieroRepo";
 import { exportarPDF, esc } from "../../utils/exportPdf";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -183,7 +184,10 @@ export default function ChatModule({ initCmd }) {
                 return { ...b, cuotas };
               })
             );
-            return { ...d, unidades, boletos };
+            const contratos = await getContratos(orgId, d.id).catch(() => []);
+            const egresos = await getEgresos(orgId, d.id).catch(() => []);
+            const ingresos = await getIngresos(orgId, d.id).catch(() => []);
+            return { ...d, unidades, boletos, contratos, egresos, ingresos };
           })
         );
         if (!cancelled) setDesarrollosReales(conUnidades);
@@ -324,6 +328,46 @@ export default function ChatModule({ initCmd }) {
             proximoVencimiento: proxima ? { numero: proxima.numero, fecha: proxima.vencimiento, monto: proxima.montoAjustado } : null,
           };
         }),
+        saludFinanciera: {
+          contratos: (d.contratos || []).map((c) => ({
+            nombre: c.nombre, rubro: c.rubro, montoTotal: c.montoTotal, moneda: c.moneda,
+            avancePct: c.avancePct, estado: c.estado,
+          })),
+          egresosPorMoneda: ["ARS", "USD"].map((mon) => {
+            const arr = (d.egresos || []).filter((e) => e.moneda === mon);
+            const s = (f) => arr.filter(f).reduce((a, e) => a + (Number(e.monto) || 0), 0);
+            return {
+              moneda: mon,
+              total: s(() => true),
+              conFactura: s((e) => e.estadoFiscal === "con_factura"),
+              sinFactura: s((e) => e.estadoFiscal === "sin_factura"),
+              pendiente: s((e) => e.estadoFiscal === "pendiente"),
+            };
+          }).filter((x) => x.total > 0),
+          ingresosPorMoneda: ["ARS", "USD"].map((mon) => {
+            const arr = (d.ingresos || []).filter((i) => i.moneda === mon);
+            const s = (f) => arr.filter(f).reduce((a, i) => a + (Number(i.monto) || 0), 0);
+            return {
+              moneda: mon,
+              total: s(() => true),
+              conFactura: s((i) => i.estadoFiscal === "con_factura"),
+              sinFactura: s((i) => i.estadoFiscal === "sin_factura"),
+              pendiente: s((i) => i.estadoFiscal === "pendiente"),
+            };
+          }).filter((x) => x.total > 0),
+          pagadoPorContrato: (d.contratos || []).map((c) => {
+            const pagos = (d.egresos || []).filter((e) => e.categoria === "contratista" && e.contratoId === c.id);
+            const pagado = pagos.reduce((a, e) => a + (Number(e.monto) || 0), 0);
+            return { contratista: c.nombre, montoContrato: c.montoTotal, moneda: c.moneda, pagado, resta: (Number(c.montoTotal) || 0) - pagado };
+          }),
+          egresosPorCategoria: Object.entries(
+            (d.egresos || []).reduce((acc, e) => {
+              const k = e.categoria + "|" + e.moneda;
+              acc[k] = (acc[k] || 0) + (Number(e.monto) || 0);
+              return acc;
+            }, {})
+          ).map(([k, v]) => ({ categoria: k.split("|")[0], moneda: k.split("|")[1], total: v })),
+        },
       })),
       clientes: clientesReales.map((c) => ({
         id: c.id, nombre: c.nombre, contacto: c.contacto || "",
@@ -374,6 +418,8 @@ ${JSON.stringify(resumenInmobiliaria, null, 2)}
 Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías), clientes, boletos, cuotas o cobranzas, respondé en base a estos datos. Cada boleto incluye cuotas pagadas/pendientes, saldo pendiente y próximo vencimiento — podés responder sobre estado de cobranza, deuda de un cliente o vencimientos que vienen. El campo obraId de un desarrollo, si no es null, indica qué obra lo construye — podés cruzar costos de obra con el desarrollo. IMPORTANTE sobre lo que NO existe todavía: el recálculo de cuotas por índice CAC NO está activo (los montos ajustados son iguales a los originales, pendiente de validación contable) y NO existe motor de cálculo costo→precio por m². Si piden algo de eso, aclaralo y ofrecé lo que sí podés analizar.
 
 Los estudiosMercado son busquedas de precios de venta de la zona hechas por el modulo Mercado (portales inmobiliarios, con fecha): usalos para responder sobre valores de m2 de una zona, siempre aclarando que son precios de publicacion (no de cierre) y la fecha del estudio. Las factibilidades son analisis de viabilidad de terrenos hechos por el modulo Factibilidad leyendo el codigo de planeamiento: usalas para responder sobre indicadores urbanisticos (FOT, FOS, alturas) y m2 edificables estimados de los terrenos analizados, aclarando que son estimaciones indicativas que no reemplazan la prefactibilidad municipal ni al arquitecto. Si preguntan por una zona o terreno SIN estudio previo, indicá que pueden generarlo en los modulos Mercado o Factibilidad. PROHIBIDO dar valores de mercado, indicadores urbanisticos, FOT/FOS, alturas o nomenclatura de zonas desde tu conocimiento general, ni siquiera como "referencia orientativa": la normativa urbana cambia (codigos se derogan y reemplazan) y un valor desactualizado puede inducir una mala decision de inversion. Ante zona sin datos: decir que no hay datos cargados y derivar al modulo, nada mas.
+
+saludFinanciera es el arqueo real de cada desarrollo: contratos con contratistas (monto y avance), egresos e ingresos separados por moneda (ARS y USD) y por estado fiscal (conFactura/sinFactura/pendiente), lo pagado y lo que resta a cada contratista, y egresos por categoria. Usalos para responder sobre la caja del desarrollo, cuanto se debe a un contratista, cuanto esta documentado con factura y en que se gasta la plata. Los montos ARS y USD NO se suman entre si: si el usuario quiere un consolidado en una sola moneda, pedile el tipo de cambio. El estado fiscal sinFactura significa pagos sin comprobante fiscal (efectivo, informal), es un dato de control interno del desarrollador — presentalo con naturalidad como parte del arqueo, no lo juzgues ni lo señales como irregular. Si un desarrollo no tiene datos financieros cargados, deci que todavia no se cargo el arqueo de ese desarrollo.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

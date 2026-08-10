@@ -37,14 +37,14 @@ function PraxiaLogo({ size = "md", collapsed = false }) {
 const NAV_ITEMS = [
   { id: "dashboard",   icon: "📊", label: "Dashboard",       sub: "Resumen general" },
   { id: "chat",        icon: "🤖", label: "Agente IA",      sub: "Asistente" },
+  { id: "factibilidad", icon: "📐", label: "Factibilidad",  sub: "Viabilidad de terreno" },
+  { id: "mercado",     icon: "🔎", label: "Mercado",        sub: "Precios de zona" },
+  { id: "desarrollos", icon: "🏢", label: "Desarrollos",    sub: "Inmobiliaria" },
+  { id: "clientes",    icon: "👥", label: "Clientes",       sub: "CRM" },
   { id: "presupuesto", icon: "📋", label: "Presupuestos",   sub: "Obras + precios" },
   { id: "compras",     icon: "📦", label: "Órd. Compra",    sub: "Proveedores" },
   { id: "cert",        icon: "📈", label: "Certificaciones",sub: "Avance económico" },
   { id: "precios",     icon: "💲", label: "Base Precios",   sub: "948 ítems + historial" },
-  { id: "desarrollos", icon: "🏢", label: "Desarrollos",    sub: "Inmobiliaria" },
-  { id: "clientes",    icon: "👥", label: "Clientes",       sub: "CRM" },
-  { id: "mercado",     icon: "🔎", label: "Mercado",        sub: "Precios de zona" },
-  { id: "factibilidad", icon: "📐", label: "Factibilidad",  sub: "Viabilidad de terreno" },
 ];
 
 const CHAT_MODULES = { parte: "/nuevo_parte", rfi: "/nuevo_RFI", sh: "/nueva_incidencia_SH", calidad: "/nueva_NC" };

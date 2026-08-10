@@ -3,7 +3,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
-import { getDesarrollos, getClientes } from "../../services/desarrollosRepo";
+import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
 import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso } from "../../services/financieroRepo";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
@@ -435,6 +435,8 @@ const FORM_ING_VACIO = { categoria: "venta_cuota", clienteId: "", nombreLibre: "
 function TabIngresos({ orgId, devId, fmt }) {
   const [ingresos, setIngresos] = useState([]);
   const [clientes, setClientes] = useState([]);
+  const [cuotasCliente, setCuotasCliente] = useState([]); // cuotas + anticipo del cliente
+  const [cargandoCuotas, setCargandoCuotas] = useState(false);
   const [form, setForm] = useState(FORM_ING_VACIO);
   const [editandoId, setEditandoId] = useState(null);
   const [guardando, setGuardando] = useState(false);
@@ -449,6 +451,55 @@ function TabIngresos({ orgId, devId, fmt }) {
     if (!orgId) return;
     getClientes(orgId).then(setClientes).catch(() => setClientes([]));
   }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || !devId || !form.clienteId || !usaCliente(form.categoria)) {
+      setCuotasCliente([]);
+      return;
+    }
+    let cancel = false;
+    setCargandoCuotas(true);
+    (async () => {
+      try {
+        const boletos = await getBoletos(orgId, devId);
+        const delCliente = (boletos || []).filter((b) => b.clienteId === form.clienteId);
+        const todas = [];
+        for (const b of delCliente) {
+          const anticipo = Number(b.anticipo || 0);
+          if (anticipo > 0) {
+            todas.push({
+              boletoId: b.id, boletoMoneda: b.moneda,
+              numero: "anticipo", esAnticipo: true,
+              vencimiento: b.fecha || "",
+              montoAjustado: anticipo, montoOriginal: anticipo,
+              estado: "",
+            });
+          }
+          const cuotas = await getCuotas(orgId, devId, b.id).catch(() => []);
+          cuotas.forEach((c) => todas.push({ ...c, boletoId: b.id, boletoMoneda: b.moneda }));
+        }
+        if (!cancel) setCuotasCliente(todas);
+      } catch { if (!cancel) setCuotasCliente([]); }
+      if (!cancel) setCargandoCuotas(false);
+    })();
+    return () => { cancel = true; };
+  }, [orgId, devId, form.clienteId, form.categoria]);
+
+  function elegirCuota(cuotaKey) {
+    if (!cuotaKey) return;
+    const [boletoId, numero] = cuotaKey.split("|");
+    const c = cuotasCliente.find((x) => x.boletoId === boletoId && String(x.numero) === numero);
+    if (!c) return;
+    const monto = c.montoAjustado ?? c.montoOriginal ?? "";
+    setForm((f) => ({
+      ...f,
+      monto: monto ? String(monto) : f.monto,
+      moneda: c.boletoMoneda || f.moneda,
+      concepto: c.esAnticipo
+        ? `Anticipo del boleto${c.vencimiento ? " (" + c.vencimiento + ")" : ""}`
+        : `Cuota ${c.numero}${c.vencimiento ? " (vence " + c.vencimiento + ")" : ""}`,
+    }));
+  }
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -531,6 +582,28 @@ function TabIngresos({ orgId, devId, fmt }) {
               <option value="">— Elegir cliente —</option>
               {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
+            {form.clienteId && (
+              <div style={{ marginTop: "8px" }}>
+                <label style={S.label}>Traer datos de una cuota o anticipo (opcional)</label>
+                {cargandoCuotas ? (
+                  <div style={{ fontSize: "11px", color: COLORS.muted }}>Buscando boletos del cliente...</div>
+                ) : cuotasCliente.length === 0 ? (
+                  <div style={{ fontSize: "11px", color: COLORS.muted }}>Este cliente no tiene boletos con cuotas en este desarrollo. Cargá el monto a mano.</div>
+                ) : (
+                  <>
+                    <select style={S.input} defaultValue="" onChange={(e) => { elegirCuota(e.target.value); e.target.value = ""; }}>
+                      <option value="">— Elegir cuota/anticipo para autocompletar —</option>
+                      {cuotasCliente.map((c) => (
+                        <option key={c.boletoId + "|" + c.numero} value={c.boletoId + "|" + c.numero}>
+                          {c.esAnticipo ? "Anticipo" : "Cuota " + c.numero}{c.vencimiento ? " · " + (c.esAnticipo ? "" : "vence ") + c.vencimiento : ""}{c.estado ? " · " + c.estado : ""} · {(c.boletoMoneda === "USD" ? "USD " : "$ ") + Number(c.montoAjustado ?? c.montoOriginal ?? 0).toLocaleString("es-AR")}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "3px" }}>Al elegir, se completan monto, moneda y concepto. Podés ajustarlos después. No modifica el boleto.</div>
+                  </>
+                )}
+              </div>
+            )}
             {clientes.length === 0 && <div style={{ fontSize: "11px", color: COLORS.amarillo, marginTop: "3px" }}>No hay clientes cargados. Cargalos en el módulo 👥 Clientes.</div>}
           </>
         ) : (

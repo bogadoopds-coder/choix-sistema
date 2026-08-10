@@ -10,7 +10,7 @@ import { getObras, saveObra, deleteObra, saveItems, getPrecios, savePrecios } fr
 
 // ─── NUEVO PROYECTO ───────────────────────────────────────────────────────────
 function NuevoProyecto({ codigoSugerido, onCrear, onCancel }) {
-  const [form, setForm] = useState({ codigo: codigoSugerido || "OBR-001", nombre: "", cliente: "", fechaInicio: today(), fechaFin: "", iccPct: "15" });
+  const [form, setForm] = useState({ codigo: codigoSugerido || "OBR-001", nombre: "", cliente: "", fechaInicio: today(), fechaFin: "", iccPct: "0" });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const ok = form.nombre && form.cliente && form.fechaInicio;
   return (
@@ -29,9 +29,6 @@ function NuevoProyecto({ codigoSugerido, onCrear, onCancel }) {
           </div>
         ))}
         <div>
-          <label style={S.label}>Ajuste ICC propio ({form.iccPct}%)</label>
-          <input style={S.input} type="range" min="0" max="60" step="0.5" value={form.iccPct} onChange={(e) => set("iccPct", e.target.value)} />
-          <div style={{ color: COLORS.gold, fontSize: "11px", marginTop: "3px" }}>Factor acumulado: ×{(1 + form.iccPct / 100).toFixed(3)} sobre precios ago-2025</div>
         </div>
       </div>
       <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>

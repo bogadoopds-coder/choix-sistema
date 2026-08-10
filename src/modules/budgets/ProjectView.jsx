@@ -200,7 +200,7 @@ export default function ProjectView({ proyecto, updateProyecto, preciosActualiza
               <span style={{ fontWeight: 800, color: COLORS.gold, fontSize: "16px" }}>{proyecto.codigo}</span>
               <span style={{ fontWeight: 700, fontSize: "15px" }}>{proyecto.nombre}</span>
             </div>
-            <div style={{ color: COLORS.muted, fontSize: "11px", marginTop: "3px" }}>{proyecto.cliente} · {proyecto.fechaInicio} → {proyecto.fechaFin} · ICC +{proyecto.iccPct}%</div>
+            <div style={{ color: COLORS.muted, fontSize: "11px", marginTop: "3px" }}>{proyecto.cliente} · {proyecto.fechaInicio} → {proyecto.fechaFin}{proyecto.iccPct > 0 ? ` · ICC +${proyecto.iccPct}%` : ""}</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: "10px", color: COLORS.muted, letterSpacing: "0.08em" }}>TOTAL PRESUPUESTO</div>

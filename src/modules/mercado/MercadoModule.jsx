@@ -23,7 +23,7 @@ function usd(n) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("es-AR");
 }
-const FORM_VACIO = { ubicacion: "", radio: "hasta 10 cuadras", tipologias: [], estadoUnidad: "", m2Min: "", m2Max: "", antiguedad: "" };
+const FORM_VACIO = { modo: "zona", ubicacion: "", radio: "hasta 10 cuadras", tipologias: [], estadoUnidad: "", m2Min: "", m2Max: "", antiguedad: "", desarrolladoras: "", localidad: "" };
 // ─── MÓDULO MERCADO: comparables de venta en la zona ────────────────────────
 export default function MercadoModule() {
   const { orgId } = useAuth();
@@ -50,7 +50,9 @@ export default function MercadoModule() {
     }));
   }
   async function buscar() {
-    if (!form.ubicacion.trim() || buscando) return;
+    if (buscando) return;
+    if (form.modo === "zona" && !form.ubicacion.trim()) { setError("Ingresá una ubicación."); return; }
+    if (form.modo === "desarrolladora" && (!form.desarrolladoras.trim() || !form.localidad.trim())) { setError("Ingresá al menos una desarrolladora y una localidad."); return; }
     setBuscando(true);
     setError("");
     const jobId = "job-" + Date.now();
@@ -60,6 +62,7 @@ export default function MercadoModule() {
       body: JSON.stringify({
         orgId,
         jobId,
+        modo: form.modo,
         ubicacion: form.ubicacion.trim(),
         radio: form.radio,
         tipologias: form.tipologias,
@@ -67,6 +70,8 @@ export default function MercadoModule() {
         antiguedad: form.antiguedad,
         m2Min: form.m2Min ? Number(form.m2Min) : null,
         m2Max: form.m2Max ? Number(form.m2Max) : null,
+        desarrolladoras: form.desarrolladoras.trim(),
+        localidad: form.localidad.trim(),
       }),
     }).catch(() => {});
     const jobRef = doc(db, "orgs", orgId, "jobs", jobId);
@@ -81,13 +86,15 @@ export default function MercadoModule() {
             try { datos = JSON.parse(j.resultado); } catch (_) { datos = null; }
           }
           const estId = await saveEstudio(orgId, {
-            ubicacion: form.ubicacion.trim(),
+            modo: form.modo,
+            ubicacion: form.modo === "zona" ? form.ubicacion.trim() : form.localidad.trim(),
             radio: form.radio,
             tipologias: form.tipologias,
             estadoUnidad: form.estadoUnidad,
             antiguedad: form.antiguedad,
             m2Min: form.m2Min ? Number(form.m2Min) : null,
             m2Max: form.m2Max ? Number(form.m2Max) : null,
+            desarrolladoras: form.desarrolladoras.trim(),
             comparables: datos?.comparables || [],
             resumen: datos?.resumen || null,
             resultadoTexto: !datos ? (j.resultadoTexto || "") : "",
@@ -136,11 +143,46 @@ export default function MercadoModule() {
           <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "12px", fontSize: "12px" }}>NUEVO ESTUDIO DE ZONA</div>
           <div style={{ display: "grid", gap: "10px" }}>
             <div>
+              <label style={S.label}>¿Cómo querés buscar?</label>
+              <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                <button onClick={() => setForm({ ...form, modo: "zona" })}
+                  style={{ ...S.btn(form.modo === "zona" ? "blue" : undefined, true), padding: "5px 10px", fontSize: "11px", cursor: "pointer" }}>
+                  📍 Por zona
+                </button>
+                <button onClick={() => setForm({ ...form, modo: "desarrolladora" })}
+                  style={{ ...S.btn(form.modo === "desarrolladora" ? "blue" : undefined, true), padding: "5px 10px", fontSize: "11px", cursor: "pointer" }}>
+                  🏗️ Por desarrolladora
+                </button>
+              </div>
+            </div>
+            {form.modo === "desarrolladora" && (
+              <>
+                <div>
+                  <label style={S.label}>Desarrolladora(s) — una o varias separadas por coma</label>
+                  <input style={S.input} placeholder="Ej: Grupo Portland, VivvA, TGLT"
+                    value={form.desarrolladoras}
+                    onChange={(e) => setForm({ ...form, desarrolladoras: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Localidad / zona amplia</label>
+                  <input style={S.input} placeholder="Ej: City Bell / Tolosa / La Plata centro"
+                    value={form.localidad}
+                    onChange={(e) => setForm({ ...form, localidad: e.target.value })} />
+                </div>
+                <div style={{ fontSize: "10px", color: COLORS.muted }}>
+                  Busca los emprendimientos de esa(s) desarrolladora(s) en la localidad, para comparar contra proyectos que construyen parecido al tuyo.
+                </div>
+              </>
+            )}
+            {form.modo === "zona" && (
+            <div>
               <label style={S.label}>Ubicación (esquina, barrio o ciudad)</label>
               <input style={S.input} placeholder="Ej: 19 y 38, La Plata / Palermo, CABA / Godoy Cruz, Mendoza"
                 value={form.ubicacion}
                 onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} />
             </div>
+            )}
+            {form.modo === "zona" && (<>
             <div>
               <label style={S.label}>Radio de búsqueda</label>
               <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
@@ -197,8 +239,9 @@ export default function MercadoModule() {
                   onChange={(e) => setForm({ ...form, m2Max: e.target.value })} />
               </div>
             </div>
-            <button style={{ ...S.btn("gold"), padding: "8px", cursor: "pointer", opacity: !form.ubicacion.trim() || buscando ? 0.5 : 1 }}
-              disabled={!form.ubicacion.trim() || buscando} onClick={buscar}>
+            </>)}
+            <button style={{ ...S.btn("gold"), padding: "8px", cursor: "pointer", opacity: buscando ? 0.5 : 1 }}
+              disabled={buscando} onClick={buscar}>
               {buscando ? "🔎 BUSCANDO EN LA WEB..." : "BUSCAR COMPARABLES"}
             </button>
             {buscando && (

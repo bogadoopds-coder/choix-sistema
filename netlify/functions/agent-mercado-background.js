@@ -16,10 +16,11 @@ COMO BUSCAR:
 - REGLA DE ORO: ningun comparable sin URL de fuente. Si no podes citar de donde salio, no lo incluyas. No inventes avisos ni precios. Si un portal no arroja resultados, seguí con otros.
 - Los precios de portales son PRECIOS DE PUBLICACION (lo que se pide), no precios de cierre. Esto va aclarado en el resumen.
 FORMATO DE RESPUESTA:
+DETECCION DE ATIPICOS: antes de calcular el resumen, marca "atipico": true a los comparables que distorsionan la muestra, con el motivo en "motivoAtipico". Son atipicos: superficies incoherentes con la tipologia (un 2 ambientes de 15 o 16 m2, o superficies absurdas para el tipo); precioM2 que se desvia groseramente del resto (mas del doble o menos de la mitad de la mediana de los demas); o propiedades que no son comparables (cocheras, lotes, locales colados). El resumen (min, mediana, max, muestras) se calcula SOLO con los NO atipicos, para que la mediana sea representativa. En "observaciones" aclara cuantos se marcaron atipicos y por que. Igual devolve TODOS los comparables (los atipicos marcados).
 Tu respuesta final debe ser UNICAMENTE un objeto JSON valido, sin texto antes ni despues, sin markdown, con esta estructura exacta:
 {
   "comparables": [
-    { "zona": "...", "tipologia": "...", "m2": 0, "precio": 0, "moneda": "USD", "precioM2": 0, "estado": "pozo|estrenar|usado|sd", "fuente": "https://..." }
+    { "zona": "...", "tipologia": "...", "m2": 0, "precio": 0, "moneda": "USD", "precioM2": 0, "estado": "pozo|estrenar|usado|sd", "fuente": "https://...", "desarrolladora": "", "atipico": false, "motivoAtipico": "" }
   ],
   "resumen": {
     "muestras": 0,
@@ -41,8 +42,15 @@ exports.handler = async (event) => {
   } catch (_) {
     return { statusCode: 400, body: "JSON invalido" };
   }
-  const { orgId, jobId, ubicacion, radio, tipologias, estadoUnidad, m2Min, m2Max, antiguedad } = payload;
-  if (!orgId || !jobId || !ubicacion) {
+  const { orgId, jobId, modo, ubicacion, radio, tipologias, estadoUnidad, m2Min, m2Max, antiguedad, desarrolladoras, localidad } = payload;
+  if (!orgId || !jobId) {
+    return { statusCode: 400, body: "Faltan orgId o jobId" };
+  }
+  if (modo === "desarrolladora") {
+    if (!desarrolladoras || !localidad) {
+      return { statusCode: 400, body: "Faltan desarrolladoras o localidad" };
+    }
+  } else if (!ubicacion) {
     return { statusCode: 400, body: "Faltan orgId, jobId o ubicacion" };
   }
   const db = getDb();
@@ -51,7 +59,7 @@ exports.handler = async (event) => {
     await jobRef.set({
       tipo: "estudio_mercado",
       estado: "procesando",
-      ubicacion: ubicacion,
+      ubicacion: modo === "desarrolladora" ? (localidad || ubicacion || "") : ubicacion,
       creadoEn: new Date().toISOString(),
     });
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -66,7 +74,9 @@ exports.handler = async (event) => {
     ].filter(Boolean).join("\n");
     const userContent = "Necesito un estudio de mercado de precios de VENTA con estos criterios:\n\n" +
       criterios +
-      "\n\nBusca en la web (prioridad: Argenprop, Zonaprop, Inmobusqueda, MercadoLibre Inmuebles) y devolve el JSON segun el formato del sistema.";
+      (modo === "desarrolladora"
+        ? "MODO POR DESARROLLADORA: busca especificamente los emprendimientos de venta de esta(s) desarrolladora(s): \"" + (desarrolladoras || "") + "\" en la localidad/zona: \"" + (localidad || ubicacion || "") + "\". Traé sus unidades en venta con precio y m2, completando el campo desarrolladora en cada comparable. El objetivo es comparar contra proyectos de esa desarrolladora. Busca en Argenprop, Zonaprop, Inmobusqueda, MercadoLibre Inmuebles y las webs propias de las desarrolladoras. Devolve el JSON segun el formato del sistema."
+        : "Busca en la web (prioridad: Argenprop, Zonaprop, Inmobusqueda, MercadoLibre Inmuebles) y devolve el JSON segun el formato del sistema.");
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {

@@ -21,7 +21,7 @@ const ESTADOS_UNIDAD = [
   { id: "vendida",    label: "Vendida",    color: COLORS.blue },
 ];
 
-const FORM_DEV_VACIO = { nombre: "", ubicacion: "", estado: "pozo", obraId: "" };
+const FORM_DEV_VACIO = { nombre: "", ubicacion: "", estado: "pozo", obraId: "", valorTierra: "", monedaTierra: "USD", pctIndirectos: "" };
 const FORM_UNIDAD_VACIO = {
   codigo: "", tipologia: "", m2: "", piso: "", orientacion: "",
   estado: "disponible", precioLista: "", moneda: "USD",
@@ -79,6 +79,9 @@ export default function DesarrollosModule() {
         ubicacion: form.ubicacion.trim(),
         estado: form.estado,
         obraId: form.obraId || null,
+        valorTierra: form.valorTierra ? Number(form.valorTierra) : null,
+        monedaTierra: form.monedaTierra || "USD",
+        pctIndirectos: form.pctIndirectos ? Number(form.pctIndirectos) : null,
         ...(editandoId ? {} : { creadoEn: new Date().toISOString() }),
       });
       setForm(FORM_DEV_VACIO);
@@ -93,7 +96,7 @@ export default function DesarrollosModule() {
 
   function editar(dev) {
     setEditandoId(dev.id);
-    setForm({ nombre: dev.nombre || "", ubicacion: dev.ubicacion || "", estado: dev.estado || "pozo", obraId: dev.obraId || "" });
+    setForm({ nombre: dev.nombre || "", ubicacion: dev.ubicacion || "", estado: dev.estado || "pozo", obraId: dev.obraId || "", valorTierra: dev.valorTierra != null ? String(dev.valorTierra) : "", monedaTierra: dev.monedaTierra || "USD", pctIndirectos: dev.pctIndirectos != null ? String(dev.pctIndirectos) : "" });
   }
 
   function cancelarEdicion() {
@@ -179,6 +182,31 @@ export default function DesarrollosModule() {
                   <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ""}{o.nombre}</option>
                 ))}
               </select>
+            </div>
+            <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: "10px", marginTop: "2px" }}>
+              <div style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "8px" }}>
+                Datos para el cálculo de rentabilidad (opcionales). El valor de la tierra es el costo del terreno del proyecto, lo hayas pagado o no. Los costos indirectos son un estimado (impuestos, honorarios, comisiones, gastos) como % sobre el costo de obra.
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ flex: 2 }}>
+                  <label style={S.label}>Valor de la tierra</label>
+                  <input style={S.input} type="number" placeholder="Ej: 300000" value={form.valorTierra}
+                    onChange={(e) => setForm({ ...form, valorTierra: e.target.value })} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Moneda</label>
+                  <select style={S.input} value={form.monedaTierra}
+                    onChange={(e) => setForm({ ...form, monedaTierra: e.target.value })}>
+                    <option value="USD">USD</option>
+                    <option value="ARS">ARS</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>Costos indirectos estimados (% sobre obra)</label>
+                <input style={S.input} type="number" placeholder="Ej: 25" value={form.pctIndirectos}
+                  onChange={(e) => setForm({ ...form, pctIndirectos: e.target.value })} />
+              </div>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button style={{ ...S.btn("gold"), flex: 1, padding: "8px", cursor: "pointer", opacity: !form.nombre.trim() || guardando ? 0.5 : 1 }}

@@ -405,6 +405,7 @@ export default function FactibilidadModule() {
                               </div>
                             )}
                             {r.advertencia && <div style={{ color: COLORS.amarillo, fontSize: "10px" }}>⚠ {r.advertencia}</div>}
+                            {r.m2EdificablesEstimados > 0 && <SimuladorUnidades m2Edificables={Number(r.m2EdificablesEstimados)} />}
                           </>
                         ) : (
                           <div style={{ color: COLORS.muted, whiteSpace: "pre-wrap" }}>{fac.resultadoTexto || "Sin resultado."}</div>
@@ -418,6 +419,164 @@ export default function FactibilidadModule() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+const TIPOLOGIAS_DEFAULT = [
+  { id: "mono", label: "Monoambiente", m2: 35, icono: "🏠", esCochera: false },
+  { id: "amb1", label: "1 ambiente", m2: 40, icono: "🏠", esCochera: false },
+  { id: "amb2", label: "2 ambientes", m2: 50, icono: "🏠", esCochera: false },
+  { id: "amb3", label: "3 ambientes", m2: 75, icono: "🏠", esCochera: false },
+  { id: "cochera", label: "Cochera", m2: 25, icono: "🚗", esCochera: true },
+];
+const LS_TIPOLOGIAS = "praxia_tipologias_m2";
+const LS_FACTOR = "praxia_factor_aprovechamiento";
+function cargarM2Guardados() {
+  try {
+    const raw = localStorage.getItem(LS_TIPOLOGIAS);
+    if (!raw) return null;
+    const guardado = JSON.parse(raw);
+    // Mezcla: usa el m2 guardado si existe para cada id, si no el default
+    return TIPOLOGIAS_DEFAULT.map((t) => ({ ...t, m2: Number(guardado[t.id]) > 0 ? Number(guardado[t.id]) : t.m2 }));
+  } catch { return null; }
+}
+function SimuladorUnidades({ m2Edificables }) {
+  const [abierto, setAbierto] = useState(false);
+  const [tipologias, setTipologias] = useState(() => cargarM2Guardados() || TIPOLOGIAS_DEFAULT);
+  const [factor, setFactor] = useState(() => {
+    try { return localStorage.getItem(LS_FACTOR) || "83"; } catch { return "83"; }
+  });
+  const [cant, setCant] = useState({ mono: 0, amb1: 0, amb2: 0, amb3: 0, cochera: 0 });
+  const [editandoM2, setEditandoM2] = useState(false);
+  // Persistir factor
+  useEffect(() => {
+    try { localStorage.setItem(LS_FACTOR, factor); } catch {}
+  }, [factor]);
+  // Persistir m2 de tipologías
+  function setM2(id, v) {
+    const val = Math.max(0, Math.floor(Number(v) || 0));
+    setTipologias((ts) => {
+      const next = ts.map((t) => (t.id === id ? { ...t, m2: val } : t));
+      try {
+        const obj = {};
+        next.forEach((t) => { obj[t.id] = t.m2; });
+        localStorage.setItem(LS_TIPOLOGIAS, JSON.stringify(obj));
+      } catch {}
+      return next;
+    });
+  }
+  function resetM2() {
+    setTipologias(TIPOLOGIAS_DEFAULT);
+    try { localStorage.removeItem(LS_TIPOLOGIAS); } catch {}
+  }
+  const factorNum = Math.max(0, Math.min(100, Number(factor) || 0));
+  const m2Utiles = Math.round(m2Edificables * factorNum / 100);
+  const consumido = tipologias.reduce((s, t) => s + (cant[t.id] || 0) * t.m2, 0);
+  const saldo = m2Utiles - consumido;
+  const habitables = tipologias.filter((t) => !t.esCochera);
+  const totalUnidades = habitables.reduce((s, t) => s + (cant[t.id] || 0), 0);
+  const totalCocheras = cant.cochera || 0;
+  const setC = (id, v) => setCant((c) => ({ ...c, [id]: Math.max(0, Math.floor(Number(v) || 0)) }));
+  const fmt = (n) => Number(n).toLocaleString("es-AR");
+  const pct = (n) => totalUnidades > 0 ? Math.round((n / totalUnidades) * 100) : 0;
+  return (
+    <div style={{ marginTop: "10px", borderTop: `1px solid ${COLORS.border}30`, paddingTop: "8px" }}>
+      <button
+        onClick={() => setAbierto((a) => !a)}
+        style={{ ...S.btn("gold", true), cursor: "pointer", fontSize: "11px", padding: "5px 10px" }}>
+        🏗️ {abierto ? "Ocultar simulador de unidades" : "Simular unidades a construir"}
+      </button>
+      {abierto && (
+        <div style={{ marginTop: "10px", padding: "10px", background: `${COLORS.blue}10`, borderRadius: "6px" }}>
+          <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "10px" }}>
+            Estimación orientativa. Reparte los m² edificables en tipologías con las superficies que definas (se recuerdan en este navegador). No reemplaza el proyecto del arquitecto: el aprovechamiento real depende del diseño. En La Plata las cocheras suelen ir en planta baja, por eso ocupan metros edificables igual que una unidad.
+          </div>
+          {/* Factor */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+            <span style={{ fontSize: "11px", color: COLORS.text }}>Aprovechamiento:</span>
+            <input type="number" min="1" max="100" value={factor}
+              onChange={(e) => setFactor(e.target.value)}
+              style={{ ...S.input, width: "60px", margin: 0, padding: "3px 6px", fontSize: "11px" }} />
+            <span style={{ fontSize: "11px", color: COLORS.muted }}>% de {fmt(m2Edificables)} m²</span>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: COLORS.gold, marginLeft: "auto" }}>= {fmt(m2Utiles)} m² útiles</span>
+          </div>
+          {/* Toggle editar m2 */}
+          <div style={{ marginBottom: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setEditandoM2((e) => !e)}
+              style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}>
+              {editandoM2 ? "✓ Listo" : "✎ Editar m² por tipología"}
+            </button>
+            {editandoM2 && (
+              <button onClick={resetM2}
+                style={{ background: "none", border: `1px solid ${COLORS.muted}`, color: COLORS.muted, borderRadius: "4px", cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}>
+                Restaurar valores por defecto
+              </button>
+            )}
+          </div>
+          {/* Tipologías */}
+          {tipologias.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0", fontSize: "11px" }}>
+              <span style={{ minWidth: "130px", color: COLORS.text }}>{t.icono} {t.label}</span>
+              <button onClick={() => setC(t.id, (cant[t.id] || 0) - 1)}
+                style={{ ...S.btn("blue", true), cursor: "pointer", padding: "1px 8px", fontSize: "13px" }}>−</button>
+              <input type="number" min="0" value={cant[t.id] || 0}
+                onChange={(e) => setC(t.id, e.target.value)}
+                style={{ ...S.input, width: "48px", margin: 0, padding: "3px 6px", fontSize: "11px", textAlign: "center" }} />
+              <button onClick={() => setC(t.id, (cant[t.id] || 0) + 1)}
+                style={{ ...S.btn("blue", true), cursor: "pointer", padding: "1px 8px", fontSize: "13px" }}>+</button>
+              {editandoM2 ? (
+                <span style={{ display: "flex", alignItems: "center", gap: "3px", minWidth: "90px" }}>
+                  <span style={{ color: COLORS.muted }}>×</span>
+                  <input type="number" min="1" value={t.m2}
+                    onChange={(e) => setM2(t.id, e.target.value)}
+                    style={{ ...S.input, width: "52px", margin: 0, padding: "3px 6px", fontSize: "11px", textAlign: "center" }} />
+                  <span style={{ color: COLORS.muted }}>m²</span>
+                </span>
+              ) : (
+                <span style={{ color: COLORS.muted, minWidth: "70px" }}>× {t.m2} m²</span>
+              )}
+              <span style={{ color: COLORS.text, marginLeft: "auto", fontWeight: 600 }}>{fmt((cant[t.id] || 0) * t.m2)} m²</span>
+            </div>
+          ))}
+          {/* Medidor */}
+          <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "3px" }}>
+              <span style={{ color: COLORS.muted }}>Consumido</span>
+              <span style={{ color: COLORS.text, fontWeight: 600 }}>{fmt(consumido)} m²</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "6px" }}>
+              <span style={{ color: COLORS.muted }}>Disponible</span>
+              <span style={{ color: COLORS.text, fontWeight: 600 }}>{fmt(m2Utiles)} m²</span>
+            </div>
+            <div style={{ height: "10px", background: `${COLORS.border}`, borderRadius: "5px", overflow: "hidden", marginBottom: "6px" }}>
+              <div style={{
+                height: "100%",
+                width: `${Math.min(100, m2Utiles > 0 ? (consumido / m2Utiles) * 100 : 0)}%`,
+                background: saldo >= 0 ? COLORS.verde : COLORS.rojo,
+                transition: "width 0.2s",
+              }} />
+            </div>
+            <div style={{ textAlign: "center", fontSize: "12px", fontWeight: 700, color: saldo >= 0 ? COLORS.verde : COLORS.rojo }}>
+              {saldo >= 0 ? `✅ Entra — sobran ${fmt(saldo)} m²` : `⚠️ No entra — te faltan ${fmt(-saldo)} m²`}
+            </div>
+            {/* Resumen del mix con % */}
+            {(totalUnidades > 0 || totalCocheras > 0) && (
+              <div style={{ marginTop: "8px", padding: "8px", background: `${COLORS.gold}10`, borderRadius: "5px", fontSize: "10.5px" }}>
+                <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px" }}>
+                  {totalUnidades} unidad{totalUnidades === 1 ? "" : "es"} habitable{totalUnidades === 1 ? "" : "s"}
+                  {totalCocheras > 0 ? ` · ${totalCocheras} cochera${totalCocheras === 1 ? "" : "s"}` : ""}
+                  {totalUnidades > 0 && totalCocheras > 0 ? ` · ${(totalCocheras / totalUnidades).toFixed(1)} cochera/unidad` : ""}
+                </div>
+                {totalUnidades > 0 && (
+                  <div style={{ color: COLORS.muted }}>
+                    Mix: {habitables.filter((t) => (cant[t.id] || 0) > 0).map((t) => `${pct(cant[t.id])}% ${t.label.toLowerCase()}`).join(" · ")}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

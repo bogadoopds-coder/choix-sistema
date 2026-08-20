@@ -1,6 +1,7 @@
 import { useState } from "react";
 import PresupuestosModule from "./modules/budgets/PresupuestosModule";
 import DashboardModule from "./modules/dashboard/DashboardModule";
+import DashboardVruto from "./modules/dashboard/DashboardVruto";
 import ChatModule from "./modules/chat/ChatModule";
 import { PresupuestosModulePrecios } from "./modules/prices/PricesModule";
 import CertificacionesModule from "./modules/certificaciones/CertificacionesModule";
@@ -145,7 +146,7 @@ function PraxiaApp() {
 
         {/* Module content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          {activeModule === "dashboard" && <DashboardModule />}
+          {activeModule === "dashboard" && <DashboardVruto />}
           {activeModule === "chat" && <ChatModule key={chatInitCmd} initCmd={chatInitCmd} />}
           {activeModule === "presupuesto" && <PresupuestosModule BASE={BASE} />}
           {activeModule === "cert" && <CertificacionesModule BASE={BASE} />}

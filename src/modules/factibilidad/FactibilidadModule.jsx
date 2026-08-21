@@ -400,6 +400,7 @@ export default function FactibilidadModule() {
                                 ${indicadoresHTML}
                                 ${Array.isArray(r.usosPermitidos) && r.usosPermitidos.length ? `<h2>Usos</h2><p>${esc(r.usosPermitidos.join(", "))}</p>` : ""}
                                 ${r.observaciones ? `<h2>Observaciones</h2><p>${esc(r.observaciones)}</p>` : ""}
+                                ${r.aprovechamiento ? `<h2>Cómo aprovechar el CUF</h2><p>${esc(r.aprovechamiento)}</p>` : ""}
                                 ${Array.isArray(r.faltantes) && r.faltantes.length ? `<h2>Datos faltantes / a verificar</h2><ul>${r.faltantes.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
                                 ${r.advertencia ? `<div class="alerta">⚠ ${esc(r.advertencia)}</div>` : ""}
                               `,
@@ -440,6 +441,12 @@ export default function FactibilidadModule() {
                               </div>
                             )}
                             {r.observaciones && <div style={{ color: COLORS.text, marginBottom: "6px" }}>{r.observaciones}</div>}
+                            {r.aprovechamiento && (
+                              <div style={{ marginTop: "8px" }}>
+                                <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "3px" }}>💡 Cómo aprovechar el CUF</div>
+                                <div style={{ fontSize: "12px", color: COLORS.text, lineHeight: 1.5 }}>{r.aprovechamiento}</div>
+                              </div>
+                            )}
                             {Array.isArray(r.faltantes) && r.faltantes.length > 0 && (
                               <div style={{ color: COLORS.amarillo, marginBottom: "6px" }}>
                                 <span style={{ fontWeight: 700, fontSize: "10.5px" }}>FALTANTES: </span>

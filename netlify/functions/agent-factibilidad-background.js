@@ -15,6 +15,7 @@ COMO TRABAJAR:
 - Extrae del codigo los indicadores urbanisticos de la zona: FOT (factor de ocupacion total), FOS (factor de ocupacion del suelo), densidad, altura maxima, retiros (frente, fondo, laterales), usos permitidos, y cualquier premio o restriccion relevante (ej: premios por retiro, plano limite, cesiones).
 - REGLA DE ORO: cada indicador que informes debe salir DEL TEXTO del codigo, citando el articulo o seccion de donde lo sacaste (campo "fuente" de cada indicador). Si un indicador no aparece en el texto entregado, NO lo inventes ni lo completes con conocimiento general: listalo en "faltantes".
 - Con los indicadores encontrados, calcula una estimacion de m2 edificables: superficie del terreno x FOT (mostra la cuenta en "calculo"). Si aplican altura maxima o FOS que limiten mas que el FOT, mencionalo en observaciones. Es una ESTIMACION INDICATIVA, no un calculo de proyecto.
+- CANTIDAD DE UNIDADES FUNCIONALES (CUF): si el codigo define un CUF diferencial (valor sobre avenida y valor sobre calle), calcula las unidades funcionales maximas con la formula: superficie de la parcela / CUF (Art. 162 tipico). REGLA IMPORTANTE segun el dato "Frente sobre" del terreno: si dice AVENIDA, calcula SOLO con el CUF de avenida y no menciones el de calle. Si dice CALLE, calcula SOLO con el CUF de calle. Si dice A VERIFICAR, entonces da ambos escenarios (avenida y calle) y agrega a "faltantes" la clasificacion vial de la via. Las cocheras y espacios comunes no computan para el CUF. Para parcelas de 200 m2 o menos el CUF no se aplica. Menciona el resultado en observaciones.
 FORMATO DE RESPUESTA:
 Tu respuesta debe ser UNICAMENTE un objeto JSON valido, sin texto antes ni despues, sin markdown:
 {
@@ -63,6 +64,9 @@ exports.handler = async (event) => {
       terreno.frente ? "Frente: " + terreno.frente + " m" : null,
       terreno.fondo ? "Fondo: " + terreno.fondo + " m" : null,
       terreno.zona ? "Zona (segun el usuario): " + terreno.zona : null,
+      terreno.frenteVia === "avenida" ? "Frente sobre: AVENIDA (conectora primaria) - usa el CUF sobre avenida" :
+        terreno.frenteVia === "calle" ? "Frente sobre: CALLE - usa el CUF sobre calle" :
+        "Frente sobre: A VERIFICAR (el usuario no lo definio)",
     ].filter(Boolean).join("\n");
     const userContent = "DATOS DEL TERRENO:\n" + datosTerreno +
       (truncado ? "\n\nNOTA: el texto del codigo fue truncado por longitud; si falta la seccion de la zona, indicalo en faltantes." : "") +

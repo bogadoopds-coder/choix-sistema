@@ -405,7 +405,7 @@ export default function FactibilidadModule() {
                               </div>
                             )}
                             {r.advertencia && <div style={{ color: COLORS.amarillo, fontSize: "10px" }}>⚠ {r.advertencia}</div>}
-                            {r.m2EdificablesEstimados > 0 && <SimuladorUnidades m2Edificables={Number(r.m2EdificablesEstimados)} />}
+                            {r.m2EdificablesEstimados > 0 && <SimuladorUnidades m2Edificables={Number(r.m2EdificablesEstimados)} superficieParcela={Number(fac.superficie) || 0} indicadores={r.indicadores || []} />}
                           </>
                         ) : (
                           <div style={{ color: COLORS.muted, whiteSpace: "pre-wrap" }}>{fac.resultadoTexto || "Sin resultado."}</div>
@@ -423,10 +423,10 @@ export default function FactibilidadModule() {
   );
 }
 const TIPOLOGIAS_DEFAULT = [
-  { id: "mono", label: "Monoambiente", m2: 35, icono: "🏠", esCochera: false },
-  { id: "amb1", label: "1 ambiente", m2: 40, icono: "🏠", esCochera: false },
-  { id: "amb2", label: "2 ambientes", m2: 50, icono: "🏠", esCochera: false },
-  { id: "amb3", label: "3 ambientes", m2: 75, icono: "🏠", esCochera: false },
+  { id: "mono", label: "Monoambiente", m2: 30, icono: "🏠", esCochera: false },
+  { id: "amb2", label: "2 amb (1 dorm)", m2: 35, icono: "🏠", esCochera: false },
+  { id: "amb3", label: "3 amb (2 dorm)", m2: 54, icono: "🏠", esCochera: false },
+  { id: "amb4", label: "4 amb (3 dorm)", m2: 72, icono: "🏠", esCochera: false },
   { id: "cochera", label: "Cochera", m2: 25, icono: "🚗", esCochera: true },
 ];
 const LS_TIPOLOGIAS = "praxia_tipologias_m2";
@@ -436,23 +436,35 @@ function cargarM2Guardados() {
     const raw = localStorage.getItem(LS_TIPOLOGIAS);
     if (!raw) return null;
     const guardado = JSON.parse(raw);
-    // Mezcla: usa el m2 guardado si existe para cada id, si no el default
     return TIPOLOGIAS_DEFAULT.map((t) => ({ ...t, m2: Number(guardado[t.id]) > 0 ? Number(guardado[t.id]) : t.m2 }));
   } catch { return null; }
 }
-function SimuladorUnidades({ m2Edificables }) {
+// Intenta leer el CUF (avenida/calle) desde los indicadores del análisis
+function leerCUF(indicadores) {
+  const res = { avenida: null, calle: null };
+  for (const i of (indicadores || [])) {
+    const nombre = (i.nombre || "").toLowerCase();
+    const valor = parseFloat(String(i.valor).replace(",", "."));
+    if (isNaN(valor)) continue;
+    if (nombre.includes("cuf") && nombre.includes("aven")) res.avenida = valor;
+    else if (nombre.includes("cuf") && nombre.includes("calle")) res.calle = valor;
+  }
+  return res;
+}
+function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores = [] }) {
   const [abierto, setAbierto] = useState(false);
   const [tipologias, setTipologias] = useState(() => cargarM2Guardados() || TIPOLOGIAS_DEFAULT);
   const [factor, setFactor] = useState(() => {
     try { return localStorage.getItem(LS_FACTOR) || "83"; } catch { return "83"; }
   });
-  const [cant, setCant] = useState({ mono: 0, amb1: 0, amb2: 0, amb3: 0, cochera: 0 });
+  const [cant, setCant] = useState({ mono: 0, amb2: 0, amb3: 0, amb4: 0, cochera: 0 });
   const [editandoM2, setEditandoM2] = useState(false);
-  // Persistir factor
+  const cufDetectado = leerCUF(indicadores);
+  const [tipoVia, setTipoVia] = useState("calle"); // 'avenida' | 'calle'
+  const [cufManual, setCufManual] = useState("");
   useEffect(() => {
     try { localStorage.setItem(LS_FACTOR, factor); } catch {}
   }, [factor]);
-  // Persistir m2 de tipologías
   function setM2(id, v) {
     const val = Math.max(0, Math.floor(Number(v) || 0));
     setTipologias((ts) => {
@@ -476,6 +488,17 @@ function SimuladorUnidades({ m2Edificables }) {
   const habitables = tipologias.filter((t) => !t.esCochera);
   const totalUnidades = habitables.reduce((s, t) => s + (cant[t.id] || 0), 0);
   const totalCocheras = cant.cochera || 0;
+  // ── CUF: unidades funcionales máximas = superficie parcela / CUF ──
+  const cufAuto = tipoVia === "avenida" ? cufDetectado.avenida : cufDetectado.calle;
+  const cufUsado = Number(cufManual) > 0 ? Number(cufManual) : cufAuto;
+  const aplicaCUF = superficieParcela > 200 && cufUsado > 0; // Art 159: <=200 m2 no aplica CUF
+  let ufMax = null;
+  if (aplicaCUF) {
+    const raw = superficieParcela / cufUsado;
+    ufMax = Math.floor(raw) + ((raw - Math.floor(raw)) >= 0.5 ? 1 : 0); // Art 162 redondeo
+  }
+  // Las cocheras NO cuentan para el CUF (Art 162)
+  const excedeCUF = ufMax != null && totalUnidades > ufMax;
   const setC = (id, v) => setCant((c) => ({ ...c, [id]: Math.max(0, Math.floor(Number(v) || 0)) }));
   const fmt = (n) => Number(n).toLocaleString("es-AR");
   const pct = (n) => totalUnidades > 0 ? Math.round((n / totalUnidades) * 100) : 0;
@@ -489,7 +512,7 @@ function SimuladorUnidades({ m2Edificables }) {
       {abierto && (
         <div style={{ marginTop: "10px", padding: "10px", background: `${COLORS.blue}10`, borderRadius: "6px" }}>
           <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "10px" }}>
-            Estimación orientativa. Reparte los m² edificables en tipologías con las superficies que definas (se recuerdan en este navegador). No reemplaza el proyecto del arquitecto: el aprovechamiento real depende del diseño. En La Plata las cocheras suelen ir en planta baja, por eso ocupan metros edificables igual que una unidad.
+            Estimación orientativa. Las superficies por tipología son los mínimos legales del código de La Plata (Art. 163); ajustalas a tus medidas comerciales con "Editar m²" (se recuerdan en este navegador). No reemplaza el proyecto del arquitecto. En La Plata las cocheras suelen ir en planta baja: ocupan metros edificables, pero NO cuentan para el CUF (Art. 162).
           </div>
           {/* Factor */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
@@ -500,7 +523,7 @@ function SimuladorUnidades({ m2Edificables }) {
             <span style={{ fontSize: "11px", color: COLORS.muted }}>% de {fmt(m2Edificables)} m²</span>
             <span style={{ fontSize: "12px", fontWeight: 700, color: COLORS.gold, marginLeft: "auto" }}>= {fmt(m2Utiles)} m² útiles</span>
           </div>
-          {/* Toggle editar m2 */}
+          {/* Editar m2 */}
           <div style={{ marginBottom: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setEditandoM2((e) => !e)}
               style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}>
@@ -509,7 +532,7 @@ function SimuladorUnidades({ m2Edificables }) {
             {editandoM2 && (
               <button onClick={resetM2}
                 style={{ background: "none", border: `1px solid ${COLORS.muted}`, color: COLORS.muted, borderRadius: "4px", cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}>
-                Restaurar valores por defecto
+                Restaurar mínimos legales
               </button>
             )}
           </div>
@@ -538,7 +561,7 @@ function SimuladorUnidades({ m2Edificables }) {
               <span style={{ color: COLORS.text, marginLeft: "auto", fontWeight: 600 }}>{fmt((cant[t.id] || 0) * t.m2)} m²</span>
             </div>
           ))}
-          {/* Medidor */}
+          {/* Medidor de m2 */}
           <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "3px" }}>
               <span style={{ color: COLORS.muted }}>Consumido</span>
@@ -557,24 +580,63 @@ function SimuladorUnidades({ m2Edificables }) {
               }} />
             </div>
             <div style={{ textAlign: "center", fontSize: "12px", fontWeight: 700, color: saldo >= 0 ? COLORS.verde : COLORS.rojo }}>
-              {saldo >= 0 ? `✅ Entra — sobran ${fmt(saldo)} m²` : `⚠️ No entra — te faltan ${fmt(-saldo)} m²`}
+              {saldo >= 0 ? `✅ Entra en m² — sobran ${fmt(saldo)} m²` : `⚠️ No entra en m² — faltan ${fmt(-saldo)} m²`}
             </div>
-            {/* Resumen del mix con % */}
-            {(totalUnidades > 0 || totalCocheras > 0) && (
-              <div style={{ marginTop: "8px", padding: "8px", background: `${COLORS.gold}10`, borderRadius: "5px", fontSize: "10.5px" }}>
-                <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px" }}>
-                  {totalUnidades} unidad{totalUnidades === 1 ? "" : "es"} habitable{totalUnidades === 1 ? "" : "s"}
-                  {totalCocheras > 0 ? ` · ${totalCocheras} cochera${totalCocheras === 1 ? "" : "s"}` : ""}
-                  {totalUnidades > 0 && totalCocheras > 0 ? ` · ${(totalCocheras / totalUnidades).toFixed(1)} cochera/unidad` : ""}
-                </div>
-                {totalUnidades > 0 && (
-                  <div style={{ color: COLORS.muted }}>
-                    Mix: {habitables.filter((t) => (cant[t.id] || 0) > 0).map((t) => `${pct(cant[t.id])}% ${t.label.toLowerCase()}`).join(" · ")}
+          </div>
+          {/* ── LÍMITE POR CUF ── */}
+          <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "6px" }}>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold }}>Límite por CUF</span>
+              <span style={{ fontSize: "10px", color: COLORS.muted }}>La parcela da a:</span>
+              <button onClick={() => setTipoVia("avenida")}
+                style={{ ...S.btn(tipoVia === "avenida" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Avenida</button>
+              <button onClick={() => setTipoVia("calle")}
+                style={{ ...S.btn(tipoVia === "calle" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Calle</button>
+            </div>
+            {superficieParcela <= 200 ? (
+              <div style={{ fontSize: "10.5px", color: COLORS.muted }}>
+                La parcela ({fmt(superficieParcela)} m²) es ≤ 200 m²: el CUF no se aplica (Art. 159). La edificabilidad se ajusta a los demás parámetros de la zona.
+              </div>
+            ) : (
+              <>
+                {!(cufUsado > 0) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                    <span style={{ fontSize: "10.5px", color: COLORS.amarillo }}>No detecté el CUF en el análisis. Cargalo (valor de la ficha para {tipoVia}):</span>
+                    <input type="number" min="1" value={cufManual} onChange={(e) => setCufManual(e.target.value)}
+                      placeholder="CUF" style={{ ...S.input, width: "60px", margin: 0, padding: "3px 6px", fontSize: "11px" }} />
                   </div>
                 )}
-              </div>
+                {cufUsado > 0 && (
+                  <>
+                    <div style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "4px" }}>
+                      {fmt(superficieParcela)} m² ÷ CUF {cufUsado} = <b style={{ color: COLORS.text }}>{ufMax} unidades funcionales máximas</b> (Art. 162, cocheras no computan)
+                      {cufManual && Number(cufManual) > 0 ? " · CUF ingresado a mano" : " · CUF del análisis"}
+                    </div>
+                    <div style={{ textAlign: "center", fontSize: "12px", fontWeight: 700, color: excedeCUF ? COLORS.rojo : COLORS.verde }}>
+                      {excedeCUF
+                        ? `⚠️ Te pasás del CUF — proyectás ${totalUnidades} unidades pero el máximo es ${ufMax}`
+                        : `✅ Dentro del CUF — ${totalUnidades} de ${ufMax} unidades permitidas`}
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </div>
+          {/* Resumen del mix */}
+          {(totalUnidades > 0 || totalCocheras > 0) && (
+            <div style={{ marginTop: "8px", padding: "8px", background: `${COLORS.gold}10`, borderRadius: "5px", fontSize: "10.5px" }}>
+              <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "4px" }}>
+                {totalUnidades} unidad{totalUnidades === 1 ? "" : "es"} habitable{totalUnidades === 1 ? "" : "s"}
+                {totalCocheras > 0 ? ` · ${totalCocheras} cochera${totalCocheras === 1 ? "" : "s"}` : ""}
+                {totalUnidades > 0 && totalCocheras > 0 ? ` · ${(totalCocheras / totalUnidades).toFixed(1)} cochera/unidad` : ""}
+              </div>
+              {totalUnidades > 0 && (
+                <div style={{ color: COLORS.muted }}>
+                  Mix: {habitables.filter((t) => (cant[t.id] || 0) > 0).map((t) => `${pct(cant[t.id])}% ${t.label.toLowerCase()}`).join(" · ")}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -10,6 +10,12 @@ import {
 } from "../../services/factibilidadRepo";
 import { exportarPDF, esc } from "../../utils/exportPdf";
 const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", codIds: [] };
+const PROVINCIAS_AR = [
+  "Buenos Aires", "CABA", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes",
+  "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones",
+  "Neuquén", "Río Negro", "Salta", "San Juan", "San Luis", "Santa Cruz", "Santa Fe",
+  "Santiago del Estero", "Tierra del Fuego", "Tucumán",
+];
 function num(n) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("es-AR");
@@ -29,6 +35,9 @@ export default function FactibilidadModule() {
   // alta de código en biblioteca
   const [codNombre, setCodNombre] = useState("");
   const [codMunicipio, setCodMunicipio] = useState("");
+  const [codProvincia, setCodProvincia] = useState("");
+  const [filtroProv, setFiltroProv] = useState("");
+  const [filtroMun, setFiltroMun] = useState("");
   const [extrayendo, setExtrayendo] = useState(false);
   async function cargar() {
     if (!orgId) return;
@@ -86,9 +95,10 @@ export default function FactibilidadModule() {
       if (!texto || texto.length < 200) {
         throw new Error("No se pudo extraer texto útil del archivo (¿es un PDF escaneado como imagen?).");
       }
-      await saveCodigo(orgId, { nombre: codNombre, municipio: codMunicipio, texto });
+      await saveCodigo(orgId, { nombre: codNombre, provincia: codProvincia, municipio: codMunicipio, texto });
       setCodNombre("");
       setCodMunicipio("");
+      setCodProvincia("");
       await cargar();
     } catch (err) {
       setError("Error al procesar el código: " + (err.message || "desconocido") + " — Si el PDF es muy grande, probá subir solo la sección de indicadores urbanísticos, o el archivo en .txt.");
@@ -287,7 +297,11 @@ export default function FactibilidadModule() {
             <div style={{ display: "grid", gap: "8px" }}>
               <input style={S.input} placeholder="Nombre (ej: Ordenanza 12692/25 - POT La Plata)" value={codNombre}
                 onChange={(e) => setCodNombre(e.target.value)} />
-              <input style={S.input} placeholder="Municipio (ej: La Plata)" value={codMunicipio}
+              <select style={S.input} value={codProvincia} onChange={(e) => setCodProvincia(e.target.value)}>
+                <option value="">— Provincia —</option>
+                {PROVINCIAS_AR.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <input style={S.input} placeholder="Municipio / Partido (ej: La Plata)" value={codMunicipio}
                 onChange={(e) => setCodMunicipio(e.target.value)} />
               <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" style={{ display: "none" }} onChange={handleCodigoFile} />
               <button style={{ ...S.btn("blue", true), padding: "7px", cursor: "pointer", opacity: extrayendo || !codNombre.trim() ? 0.5 : 1 }}
@@ -299,8 +313,21 @@ export default function FactibilidadModule() {
               </div>
             </div>
             {codigos.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
-                {codigos.map((c) => (
+              <div style={{ marginTop: "12px" }}>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
+                  <select style={{ ...S.input, flex: 1, minWidth: "110px", fontSize: "11px", padding: "4px 6px" }} value={filtroProv}
+                    onChange={(e) => { setFiltroProv(e.target.value); setFiltroMun(""); }}>
+                    <option value="">Todas las provincias</option>
+                    {[...new Set(codigos.map((c) => c.provincia).filter(Boolean))].sort().map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <select style={{ ...S.input, flex: 1, minWidth: "110px", fontSize: "11px", padding: "4px 6px" }} value={filtroMun}
+                    onChange={(e) => setFiltroMun(e.target.value)}>
+                    <option value="">Todos los municipios</option>
+                    {[...new Set(codigos.filter((c) => !filtroProv || c.provincia === filtroProv).map((c) => c.municipio).filter(Boolean))].sort().map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {codigos.filter((c) => (!filtroProv || c.provincia === filtroProv) && (!filtroMun || c.municipio === filtroMun)).map((c) => (
                   <div key={c.id} style={{ background: COLORS.subtle, borderRadius: "6px", padding: "8px 10px", display: "flex", alignItems: "center", gap: "8px" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: "12px", fontWeight: 700 }}>{c.nombre}</div>
@@ -312,6 +339,7 @@ export default function FactibilidadModule() {
                       style={{ background: "none", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "12px" }}>✕</button>
                   </div>
                 ))}
+                </div>
               </div>
             )}
           </div>

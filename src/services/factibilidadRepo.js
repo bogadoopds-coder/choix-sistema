@@ -47,6 +47,7 @@ export async function saveCodigo(orgId, codigo) {
   const truncado = original > MAX_CODIGO_CHARS;
   await setDoc(doc(db, "orgs", orgId, "codigosPlaneamiento", id), {
     nombre: codigo.nombre.trim(),
+    provincia: (codigo.provincia || "").trim(),
     municipio: (codigo.municipio || "").trim(),
     texto: truncado ? codigo.texto.slice(0, MAX_CODIGO_CHARS) : codigo.texto,
     chars: Math.min(original, MAX_CODIGO_CHARS),

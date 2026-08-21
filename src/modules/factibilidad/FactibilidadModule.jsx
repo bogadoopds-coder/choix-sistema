@@ -9,7 +9,7 @@ import {
   getFactibilidades, saveFactibilidad, deleteFactibilidad,
 } from "../../services/factibilidadRepo";
 import { exportarPDF, esc } from "../../utils/exportPdf";
-const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", codIds: [] };
+const FORM_TERRENO_VACIO = { ubicacion: "", superficie: "", frente: "", fondo: "", zona: "", frenteVia: "verificar", codIds: [] };
 const PROVINCIAS_AR = [
   "Buenos Aires", "CABA", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes",
   "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones",
@@ -148,6 +148,7 @@ export default function FactibilidadModule() {
             frente: form.frente ? Number(form.frente) : null,
             fondo: form.fondo ? Number(form.fondo) : null,
             zona: form.zona.trim() || null,
+            frenteVia: form.frenteVia || "verificar",
           },
           codigoTexto: textoCombinado,
         }),
@@ -169,6 +170,7 @@ export default function FactibilidadModule() {
               frente: form.frente ? Number(form.frente) : null,
               fondo: form.fondo ? Number(form.fondo) : null,
               zonaUsuario: form.zona.trim() || null,
+              frenteVia: form.frenteVia || "verificar",
               codigoId: form.codIds.join("+"),
               codigoNombre: nombresCombinados,
               resultado: datos,
@@ -253,6 +255,18 @@ export default function FactibilidadModule() {
                   <a href="https://caubauno.org/geouno/" target="_blank" rel="noreferrer" style={{ color: COLORS.teal }}>
                     GEOUNO (CAPBA D1) ↗
                   </a>
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>El frente da a</label>
+                <select style={S.input} value={form.frenteVia}
+                  onChange={(e) => setForm({ ...form, frenteVia: e.target.value })}>
+                  <option value="verificar">A verificar en cartografía</option>
+                  <option value="avenida">Avenida (conectora primaria)</option>
+                  <option value="calle">Calle</option>
+                </select>
+                <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "3px" }}>
+                  Define qué CUF aplica (avenida y calle tienen valores distintos). Si no estás seguro, dejá "a verificar".
                 </div>
               </div>
               <div>
@@ -433,7 +447,7 @@ export default function FactibilidadModule() {
                               </div>
                             )}
                             {r.advertencia && <div style={{ color: COLORS.amarillo, fontSize: "10px" }}>⚠ {r.advertencia}</div>}
-                            {r.m2EdificablesEstimados > 0 && <SimuladorUnidades m2Edificables={Number(r.m2EdificablesEstimados)} superficieParcela={Number(fac.superficie) || 0} indicadores={r.indicadores || []} />}
+                            {r.m2EdificablesEstimados > 0 && <SimuladorUnidades m2Edificables={Number(r.m2EdificablesEstimados)} superficieParcela={Number(fac.superficie) || 0} indicadores={r.indicadores || []} frenteViaInicial={fac.frenteVia || "verificar"} />}
                           </>
                         ) : (
                           <div style={{ color: COLORS.muted, whiteSpace: "pre-wrap" }}>{fac.resultadoTexto || "Sin resultado."}</div>
@@ -479,7 +493,7 @@ function leerCUF(indicadores) {
   }
   return res;
 }
-function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores = [] }) {
+function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores = [], frenteViaInicial = "verificar" }) {
   const [abierto, setAbierto] = useState(false);
   const [tipologias, setTipologias] = useState(() => cargarM2Guardados() || TIPOLOGIAS_DEFAULT);
   const [factor, setFactor] = useState(() => {
@@ -488,7 +502,8 @@ function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores =
   const [cant, setCant] = useState({ mono: 0, amb2: 0, amb3: 0, amb4: 0, cochera: 0 });
   const [editandoM2, setEditandoM2] = useState(false);
   const cufDetectado = leerCUF(indicadores);
-  const [tipoVia, setTipoVia] = useState("calle"); // 'avenida' | 'calle'
+  const [tipoVia, setTipoVia] = useState(frenteViaInicial === "avenida" || frenteViaInicial === "calle" ? frenteViaInicial : "calle");
+  const viaDefinidaEnCarga = frenteViaInicial === "avenida" || frenteViaInicial === "calle";
   const [cufManual, setCufManual] = useState("");
   useEffect(() => {
     try { localStorage.setItem(LS_FACTOR, factor); } catch {}
@@ -615,11 +630,17 @@ function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores =
           <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "6px" }}>
               <span style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold }}>Límite por CUF</span>
-              <span style={{ fontSize: "10px", color: COLORS.muted }}>La parcela da a:</span>
-              <button onClick={() => setTipoVia("avenida")}
-                style={{ ...S.btn(tipoVia === "avenida" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Avenida</button>
-              <button onClick={() => setTipoVia("calle")}
-                style={{ ...S.btn(tipoVia === "calle" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Calle</button>
+              {viaDefinidaEnCarga ? (
+                <span style={{ fontSize: "10px", color: COLORS.muted }}>Frente sobre <b style={{ color: COLORS.text }}>{tipoVia}</b> (definido en la carga)</span>
+              ) : (
+                <>
+                  <span style={{ fontSize: "10px", color: COLORS.amarillo }}>Frente a verificar — elegí para calcular:</span>
+                  <button onClick={() => setTipoVia("avenida")}
+                    style={{ ...S.btn(tipoVia === "avenida" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Avenida</button>
+                  <button onClick={() => setTipoVia("calle")}
+                    style={{ ...S.btn(tipoVia === "calle" ? "blue" : undefined, true), fontSize: "10px", padding: "2px 8px", cursor: "pointer" }}>Calle</button>
+                </>
+              )}
             </div>
             {superficieParcela <= 200 ? (
               <div style={{ fontSize: "10.5px", color: COLORS.muted }}>

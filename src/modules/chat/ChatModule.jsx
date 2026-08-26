@@ -10,6 +10,7 @@ import { getContratos, getEgresos, getIngresos } from "../../services/financiero
 import { exportarPDF, esc } from "../../utils/exportPdf";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
+import { getConversaciones, crearConversacion, getMensajes, addMensaje, renombrarConversacion, deleteConversacion } from "../../services/conversacionesRepo";
 
 const SYSTEM_PROMPT = `Sos "Choix Constructora", una app conversacional de gestión de obra para constructoras en Argentina.
 
@@ -213,6 +214,30 @@ export default function ChatModule({ initCmd }) {
   }, [orgId]);
 
   const [messages, setMessages] = useState([]);
+  const [convId, setConvId] = useState(null);
+  const [conversaciones, setConversaciones] = useState([]);
+  const [cargandoConv, setCargandoConv] = useState(false);
+  useEffect(() => {
+    if (!orgId) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const lista = await getConversaciones(orgId);
+        if (!vivo) return;
+        setConversaciones(lista);
+        if (lista.length > 0) {
+          const ultima = lista[0];
+          setConvId(ultima.id);
+          const msgs = await getMensajes(orgId, ultima.id);
+          if (!vivo) return;
+          setMessages(msgs.map((m) => ({ role: m.role, content: m.content })));
+        }
+      } catch (e) {
+        console.error("No se pudieron cargar las conversaciones:", e);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [orgId]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState(null);
@@ -503,6 +528,19 @@ ${attachedFile.content}
     const newMessages = [...messages, { role: "user", content: userContent }];
     const displayMessages = [...messages, { role: "user", content: displayMsg }];
     setMessages(displayMessages);
+    let convActual = convId;
+    try {
+      if (!convActual) {
+        const tituloAuto = String(displayMsg || "Nueva conversación").slice(0, 60);
+        convActual = await crearConversacion(orgId, { titulo: tituloAuto });
+        setConvId(convActual);
+        const lista = await getConversaciones(orgId);
+        setConversaciones(lista);
+      }
+      await addMensaje(orgId, convActual, { role: "user", content: displayMsg });
+    } catch (e) {
+      console.error("No se pudo guardar el mensaje del usuario:", e);
+    }
     setLoading(true);
     try {
       const data = await sendChat({ messages: newMessages, system: buildSystemConDatos() });
@@ -516,8 +554,10 @@ ${attachedFile.content}
         setMessages((m) => [...m, { role: "assistant", content: "🤝 Derivando al especialista..." }]);
         const resultado = await ejecutarAccion(accion);
         setMessages((m) => [...m, { role: "assistant", content: resultado }]);
+        try { if (convActual) await addMensaje(orgId, convActual, { role: "assistant", content: resultado }, true); } catch (e) { console.error("No se pudo guardar la respuesta:", e); }
       } else {
         setMessages((m) => [...m, { role: "assistant", content: reply }]);
+        try { if (convActual) await addMensaje(orgId, convActual, { role: "assistant", content: reply }, true); } catch (e) { console.error("No se pudo guardar la respuesta:", e); }
       }
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: "⚠️ Error de conexión." }]);

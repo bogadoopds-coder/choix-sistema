@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
-import { getClientes, saveCliente, deleteCliente, getDesarrollos } from "../../services/desarrollosRepo";
+import { getClientes, saveCliente, deleteCliente, getDesarrollos, getUnidades } from "../../services/desarrollosRepo";
 import { analizarConversacion } from "../../services/ai/analizarConversacion";
 
 const TIPOS = [
@@ -52,6 +52,7 @@ export default function ClientesModule() {
   const [filtroEstado, setFiltroEstado] = useState(null);
   const [filtroCalificacion, setFiltroCalificacion] = useState(null);
   const [desarrollos, setDesarrollos] = useState([]);
+  const [unidades, setUnidades] = useState([]);
   const [conversacion, setConversacion] = useState("");
   const [analizando, setAnalizando] = useState(false);
   const [analisis, setAnalisis] = useState(null);
@@ -73,7 +74,17 @@ export default function ClientesModule() {
 
   useEffect(() => {
     if (!orgId) return;
-    getDesarrollos(orgId).then(setDesarrollos).catch(() => setDesarrollos([]));
+    getDesarrollos(orgId).then(async (devs) => {
+      setDesarrollos(devs);
+      const porDev = await Promise.all(
+        devs.map((d) =>
+          getUnidades(orgId, d.id)
+            .then((us) => us.map((u) => ({ ...u, devId: d.id, devNombre: d.nombre || d.id })))
+            .catch(() => [])
+        )
+      );
+      setUnidades(porDev.flat());
+    }).catch(() => { setDesarrollos([]); setUnidades([]); });
   }, [orgId]);
 
   async function guardar() {
@@ -171,6 +182,39 @@ export default function ClientesModule() {
     }
     setAnalizando(false);
   }
+  const NUM = (v) => {
+    if (v === null || v === undefined) return null;
+    const n = parseFloat(String(v).replace(/[^\d.,]/g, "").replace(/\./g, "").replace(",", "."));
+    return isNaN(n) ? null : n;
+  };
+  const sugeridas = useMemo(() => {
+    if (!fichaAbierta) return [];
+    const tip = (fichaForm.tipologiaBuscada || "").toLowerCase().trim();
+    const presu = NUM(fichaForm.presupuestoEstimado);
+    return unidades
+      .filter((u) => (u.estado || "disponible") === "disponible")
+      .map((u) => {
+        const razones = [];
+        let puntos = 0;
+        if (tip) {
+          const t = (u.tipologia || "").toLowerCase();
+          if (t && (t.includes(tip) || tip.includes(t))) { puntos += 2; razones.push("tipología"); }
+        }
+        if (presu !== null) {
+          const p = NUM(u.precioLista);
+          if (p !== null) {
+            if (p <= presu) { puntos += 2; razones.push("dentro del presupuesto"); }
+            else if (p <= presu * 1.15) { puntos += 1; razones.push("hasta 15% por encima"); }
+          }
+        }
+        const mismoDev = fichaAbierta.devId && u.devId === fichaAbierta.devId;
+        if (mismoDev) puntos += 1;
+        return { ...u, _puntos: puntos, _razones: razones, _mismoDev: mismoDev };
+      })
+      .filter((u) => u._puntos > 0)
+      .sort((a, b) => b._puntos - a._puntos)
+      .slice(0, 6);
+  }, [fichaAbierta, fichaForm.tipologiaBuscada, fichaForm.presupuestoEstimado, unidades]);
   async function guardarFicha() {
     if (!fichaAbierta) return;
     setGuardandoFicha(true);
@@ -542,6 +586,38 @@ export default function ClientesModule() {
                   value={fichaForm.notas}
                   onChange={(e) => setFichaForm({ ...fichaForm, notas: e.target.value })} />
               </div>
+              {sugeridas.length > 0 && (
+                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: "6px", padding: "10px" }}>
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "8px" }}>
+                    UNIDADES QUE ENCAJAN
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {sugeridas.map((u) => (
+                      <div key={`${u.devId}-${u.id}`}
+                        style={{ background: COLORS.subtle, borderRadius: "6px", padding: "7px 9px", display: "flex", alignItems: "center", gap: "8px" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "11px", fontWeight: 700 }}>
+                            {u.codigo || u.id} · {u.tipologia || "—"}{u.m2 ? ` · ${u.m2} m²` : ""}
+                          </div>
+                          <div style={{ fontSize: "10px", color: COLORS.muted }}>
+                            {u.devNombre}
+                            {u._razones.length ? ` · ${u._razones.join(", ")}` : ""}
+                          </div>
+                        </div>
+                        {u.precioLista && (
+                          <span style={{ fontSize: "11px", whiteSpace: "nowrap" }}>
+                            {u.moneda || ""} {u.precioLista}
+                          </span>
+                        )}
+                        {!u._mismoDev && <span style={S.tag(COLORS.amarillo)}>OTRO PROYECTO</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "7px" }}>
+                    Cruce automático por tipología y presupuesto. Verificá disponibilidad y precio vigente antes de ofrecer.
+                  </div>
+                </div>
+              )}
               <div style={{ display: "flex", gap: "8px" }}>
                 <button style={{ ...S.btn("gold"), flex: 1, padding: "8px", cursor: "pointer", opacity: guardandoFicha ? 0.5 : 1 }}
                   disabled={guardandoFicha} onClick={guardarFicha}>

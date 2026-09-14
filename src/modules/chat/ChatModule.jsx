@@ -396,7 +396,13 @@ export default function ChatModule({ initCmd }) {
       })),
       clientes: clientesReales.map((c) => ({
         id: c.id, nombre: c.nombre, contacto: c.contacto || "",
-        tipo: c.tipo, origen: c.origen || "",
+        tipo: c.tipo, origen: c.origen || "", canal: c.canal || "",
+        estado: c.estado || "", calificacion: c.calificacion || "",
+        calificacionSugerida: c.calificacionSugerida || "",
+        devId: c.devId || "", tipologiaBuscada: c.tipologiaBuscada || "",
+        presupuestoEstimado: c.presupuestoEstimado || "", formaPago: c.formaPago || "",
+        motivo: c.motivo || "", vendedor: c.vendedor || "",
+        proximaAccion: c.proximaAccion || "", ultimaInteraccion: c.ultimaInteraccion || "",
       })),
       cobranzas: cobranzasReales.map((p) => ({
         id: p.id, fecha: p.fecha, monto: p.monto,
@@ -439,6 +445,8 @@ montoPresupuesto y montoConsumido son la suma de cantidad x precio unitario de l
 
 DATOS REALES DE LA MITAD INMOBILIARIA (desarrollos, unidades y clientes de esta organización — misma regla: fuente de verdad, no inventes):
 ${JSON.stringify(resumenInmobiliaria, null, 2)}
+
+EMBUDO COMERCIAL (campos del CRM de interesados): cada cliente puede tener estado (nuevo, contactado, negociacion, reservo, comprador, sin_respuesta, descartado) y calificacion (alta, media, baja). El estado indica en que punto del recorrido esta la persona; la calificacion indica cuanto interes real mostro. Son cosas distintas: alguien puede estar "contactado" con calificacion "alta". El campo calificacionSugerida es lo que propuso el analizador de conversaciones y calificacion es lo que confirmo el vendedor: si difieren, el que vale es el del vendedor. ultimaInteraccion es la fecha ISO del ultimo movimiento de la ficha: usala para calcular dias sin contacto. proximaAccion es lo que el vendedor anoto que hay que hacer. canal es por donde entro la consulta y devId el desarrollo por el que pregunto. Cuando te pidan priorizar a quien contactar, cruza calificacion con dias sin contacto: una calificacion alta sin contacto hace 3 o mas dias es mas urgente que una alta de ayer; media a partir de 7 dias; baja a partir de 15. Excluí de cualquier lista de seguimiento a los que estan en estado descartado, comprador o reservo. Si un cliente no tiene estado ni calificacion cargados, deci que la ficha esta incompleta en lugar de suponer un valor.
 
 Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lista, tipologías), clientes, boletos, cuotas o cobranzas, respondé en base a estos datos. Cada boleto incluye cuotas pagadas/pendientes, saldo pendiente y próximo vencimiento — podés responder sobre estado de cobranza, deuda de un cliente o vencimientos que vienen. El campo obraId de un desarrollo, si no es null, indica qué obra lo construye — podés cruzar costos de obra con el desarrollo. IMPORTANTE sobre lo que NO existe todavía: el recálculo de cuotas por índice CAC NO está activo (los montos ajustados son iguales a los originales, pendiente de validación contable) y NO existe motor de cálculo costo→precio por m². Si piden algo de eso, aclaralo y ofrecé lo que sí podés analizar.
 

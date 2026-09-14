@@ -4,12 +4,35 @@ import { useAuth } from "../../auth/AuthContext";
 import { getClientes, saveCliente, deleteCliente } from "../../services/desarrollosRepo";
 
 const TIPOS = [
-  { id: "lead",      label: "Lead",      color: COLORS.amarillo },
-  { id: "comprador", label: "Comprador", color: COLORS.verde },
-  { id: "inversor",  label: "Inversor",  color: COLORS.blue },
+  { id: "interesado", label: "Interesado", color: COLORS.amarillo },
+  { id: "comprador",  label: "Comprador",  color: COLORS.verde },
+  { id: "inversor",   label: "Inversor",   color: COLORS.blue },
+];
+const ESTADOS = [
+  { id: "nuevo",         label: "Nuevo",          color: COLORS.blue },
+  { id: "contactado",    label: "Contactado",     color: COLORS.blue },
+  { id: "negociacion",   label: "En negociación", color: COLORS.amarillo },
+  { id: "reservo",       label: "Reservó",        color: COLORS.verde },
+  { id: "comprador",     label: "Comprador",      color: COLORS.verde },
+  { id: "sin_respuesta", label: "Sin respuesta",  color: COLORS.muted },
+  { id: "descartado",    label: "Descartado",     color: COLORS.muted },
+];
+const CALIFICACIONES = [
+  { id: "alta",  label: "Alta",  color: COLORS.verde },
+  { id: "media", label: "Media", color: COLORS.amarillo },
+  { id: "baja",  label: "Baja",  color: COLORS.muted },
+];
+const CANALES = [
+  { id: "whatsapp",   label: "WhatsApp" },
+  { id: "instagram",  label: "Instagram" },
+  { id: "mail",       label: "Mail" },
+  { id: "web",        label: "Web" },
+  { id: "referido",   label: "Referido" },
+  { id: "presencial", label: "Presencial" },
+  { id: "otro",       label: "Otro" },
 ];
 
-const FORM_VACIO = { nombre: "", contacto: "", tipo: "lead", origen: "" };
+const FORM_VACIO = { nombre: "", contacto: "", tipo: "interesado", origen: "", canal: "", devId: "" };
 
 // ─── MÓDULO CLIENTES (CRM mínimo — mitad inmobiliaria) ─────────────────────
 export default function ClientesModule() {
@@ -22,12 +45,16 @@ export default function ClientesModule() {
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState(null);
+  const [fichaAbierta, setFichaAbierta] = useState(null);
+  const [fichaForm, setFichaForm] = useState({});
+  const [guardandoFicha, setGuardandoFicha] = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState(null);
+  const [filtroCalificacion, setFiltroCalificacion] = useState(null);
 
   async function cargar() {
     if (!orgId) return;
     try {
       const lista = await getClientes(orgId);
-      lista.sort((a, b) => (a.id > b.id ? 1 : -1));
       setClientes(lista);
     } catch (e) {
       setError("No se pudieron cargar los clientes.");
@@ -49,6 +76,9 @@ export default function ClientesModule() {
         contacto: form.contacto.trim(),
         tipo: form.tipo,
         origen: form.origen.trim(),
+        canal: form.canal || "",
+        devId: form.devId || "",
+        ultimaInteraccion: new Date().toISOString(),
         ...(editandoId ? {} : { creadoEn: new Date().toISOString() }),
       });
       setForm(FORM_VACIO);
@@ -63,7 +93,7 @@ export default function ClientesModule() {
 
   function editar(cli) {
     setEditandoId(cli.id);
-    setForm({ nombre: cli.nombre || "", contacto: cli.contacto || "", tipo: cli.tipo || "lead", origen: cli.origen || "" });
+    setForm({ nombre: cli.nombre || "", contacto: cli.contacto || "", tipo: cli.tipo || "interesado", origen: cli.origen || "", canal: cli.canal || "", devId: cli.devId || "" });
   }
 
   function cancelarEdicion() {

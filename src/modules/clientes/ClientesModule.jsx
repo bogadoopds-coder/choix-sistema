@@ -208,6 +208,31 @@ export default function ClientesModule() {
     });
   }, [clientes, busqueda, filtroTipo]);
 
+  const prioritarios = useMemo(() => {
+    const hoy = Date.now();
+    const dias = (iso) => {
+      if (!iso) return null;
+      const t = Date.parse(iso);
+      if (isNaN(t)) return null;
+      return Math.floor((hoy - t) / 86400000);
+    };
+    const UMBRAL = { alta: 3, media: 7, baja: 15 };
+    return clientes
+      .filter((c) => !["descartado", "comprador", "reservo"].includes(c.estado))
+      .map((c) => {
+        const d = dias(c.ultimaInteraccion);
+        const cal = c.calificacion || "baja";
+        const umbral = UMBRAL[cal] ?? 15;
+        const vencido = d !== null && d >= umbral;
+        const sinContacto = d === null;
+        // peso: calificación primero, días después
+        const peso = (cal === "alta" ? 300 : cal === "media" ? 200 : 100) + Math.min(d ?? 99, 99);
+        return { ...c, _dias: d, _vencido: vencido || sinContacto, _peso: peso };
+      })
+      .filter((c) => c._vencido || c.proximaAccion)
+      .sort((a, b) => b._peso - a._peso)
+      .slice(0, 8);
+  }, [clientes]);
   const resumen = TIPOS.map((t) => ({ ...t, count: clientes.filter((c) => c.tipo === t.id).length }));
 
   if (!ready) return <div style={{ padding: "40px", textAlign: "center", color: COLORS.muted }}>Cargando...</div>;
@@ -233,6 +258,37 @@ export default function ClientesModule() {
         </div>
       )}
 
+      {prioritarios.length > 0 && (
+        <div style={{ ...S.panel, marginBottom: "14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+            <span style={{ fontWeight: 700, color: COLORS.gold, fontSize: "12px" }}>🔔 A CONTACTAR HOY</span>
+            <span style={S.tag(COLORS.amarillo)}>{prioritarios.length}</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {prioritarios.map((c) => {
+              const cal = CALIFICACIONES.find((x) => x.id === c.calificacion) || null;
+              const est = ESTADOS.find((x) => x.id === c.estado) || null;
+              return (
+                <div key={c.id} onClick={() => abrirFicha(c)}
+                  style={{ background: COLORS.subtle, borderRadius: "6px", padding: "8px 10px", display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700 }}>{c.nombre}</div>
+                    <div style={{ fontSize: "10px", color: COLORS.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.proximaAccion || "Sin próxima acción definida"}
+                      {c.vendedor ? ` · ${c.vendedor}` : ""}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: "10px", color: c._dias === null ? COLORS.amarillo : c._vencido ? COLORS.rojo : COLORS.muted, whiteSpace: "nowrap" }}>
+                    {c._dias === null ? "sin contacto" : c._dias === 0 ? "hoy" : `hace ${c._dias}d`}
+                  </span>
+                  {cal && <span style={S.tag(cal.color)}>{cal.label.toUpperCase()}</span>}
+                  {est && <span style={S.tag(est.color)}>{est.label.toUpperCase()}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "14px", alignItems: "start" }}>
 
         {/* ── Alta / edición ── */}

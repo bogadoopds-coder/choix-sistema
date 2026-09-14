@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { getClientes, saveCliente, deleteCliente, getDesarrollos } from "../../services/desarrollosRepo";
+import { analizarConversacion } from "../../services/ai/analizarConversacion";
 
 const TIPOS = [
   { id: "interesado", label: "Interesado", color: COLORS.amarillo },
@@ -51,6 +52,10 @@ export default function ClientesModule() {
   const [filtroEstado, setFiltroEstado] = useState(null);
   const [filtroCalificacion, setFiltroCalificacion] = useState(null);
   const [desarrollos, setDesarrollos] = useState([]);
+  const [conversacion, setConversacion] = useState("");
+  const [analizando, setAnalizando] = useState(false);
+  const [analisis, setAnalisis] = useState(null);
+  const [panelConv, setPanelConv] = useState(false);
 
   async function cargar() {
     if (!orgId) return;
@@ -123,6 +128,9 @@ export default function ClientesModule() {
 
   function abrirFicha(cli) {
     setFichaAbierta(cli);
+    setConversacion("");
+    setAnalisis(null);
+    setPanelConv(false);
     setFichaForm({
       estado: cli.estado || "nuevo",
       calificacion: cli.calificacion || "",
@@ -135,6 +143,34 @@ export default function ClientesModule() {
       notas: cli.notas || "",
     });
   }
+  async function analizar() {
+    if (!conversacion.trim() || !fichaAbierta) return;
+    setAnalizando(true);
+    setError("");
+    setAnalisis(null);
+    const dev = desarrollos.find((d) => d.id === fichaAbierta.devId);
+    const res = await analizarConversacion(conversacion, {
+      nombre: fichaAbierta.nombre,
+      desarrollo: dev ? dev.nombre : "",
+    });
+    if (res.ok) {
+      const d = res.datos;
+      setAnalisis(d);
+      setFichaForm((f) => ({
+        ...f,
+        estado: d.estado || f.estado,
+        tipologiaBuscada: d.tipologiaBuscada || f.tipologiaBuscada,
+        presupuestoEstimado: d.presupuestoEstimado || f.presupuestoEstimado,
+        formaPago: d.formaPago || f.formaPago,
+        motivo: d.motivo || f.motivo,
+        proximaAccion: d.proximaAccion || f.proximaAccion,
+        notas: [f.notas, d.resumen ? `[Resumen del agente] ${d.resumen}` : ""].filter(Boolean).join("\n\n"),
+      }));
+    } else {
+      setError(res.error);
+    }
+    setAnalizando(false);
+  }
   async function guardarFicha() {
     if (!fichaAbierta) return;
     setGuardandoFicha(true);
@@ -143,6 +179,10 @@ export default function ClientesModule() {
       await saveCliente(orgId, {
         id: fichaAbierta.id,
         ...fichaForm,
+        ...(analisis?.calificacionSugerida ? { calificacionSugerida: analisis.calificacionSugerida } : {}),
+        ...(analisis?.fundamentoCalificacion ? { fundamentoCalificacion: analisis.fundamentoCalificacion } : {}),
+        ...(analisis?.telefono ? { telefono: analisis.telefono } : {}),
+        ...(analisis?.email ? { email: analisis.email } : {}),
         ultimaInteraccion: new Date().toISOString(),
       });
       setFichaAbierta(null);
@@ -336,6 +376,41 @@ export default function ClientesModule() {
                 style={{ marginLeft: "auto", background: "none", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "16px" }}>✕</button>
             </div>
             <div style={{ display: "grid", gap: "12px" }}>
+              <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: "6px", padding: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold }}>ANALIZAR CONVERSACIÓN</span>
+                  <button onClick={() => setPanelConv(!panelConv)}
+                    style={{ marginLeft: "auto", background: "none", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.text, cursor: "pointer", fontSize: "11px", padding: "3px 8px" }}>
+                    {panelConv ? "Ocultar" : "Pegar chat"}
+                  </button>
+                </div>
+                {panelConv && (
+                  <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
+                    <textarea style={{ ...S.input, minHeight: "110px", resize: "vertical", fontFamily: "inherit", fontSize: "11px" }}
+                      placeholder="Pegá acá la conversación de WhatsApp, Instagram o mail"
+                      value={conversacion}
+                      onChange={(e) => setConversacion(e.target.value)} />
+                    <button style={{ ...S.btn("blue"), padding: "7px", cursor: "pointer", opacity: !conversacion.trim() || analizando ? 0.5 : 1 }}
+                      disabled={!conversacion.trim() || analizando} onClick={analizar}>
+                      {analizando ? "ANALIZANDO..." : "ANALIZAR Y COMPLETAR FICHA"}
+                    </button>
+                  </div>
+                )}
+                {analisis && (
+                  <div style={{ marginTop: "8px", fontSize: "11px", color: COLORS.text, display: "grid", gap: "5px" }}>
+                    <div>
+                      <strong style={{ color: COLORS.gold }}>Calificación sugerida: {(analisis.calificacionSugerida || "—").toUpperCase()}</strong>
+                    </div>
+                    {analisis.fundamentoCalificacion && <div style={{ color: COLORS.muted }}>{analisis.fundamentoCalificacion}</div>}
+                    {analisis.alertas && (
+                      <div style={{ color: COLORS.amarillo }}>⚠ {analisis.alertas}</div>
+                    )}
+                    <div style={{ color: COLORS.muted, fontSize: "10px" }}>
+                      Los campos de abajo se completaron con el análisis. Revisalos antes de guardar.
+                    </div>
+                  </div>
+                )}
+              </div>
               <div>
                 <label style={S.label}>Estado</label>
                 <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>

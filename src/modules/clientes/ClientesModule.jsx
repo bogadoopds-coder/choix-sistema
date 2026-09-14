@@ -250,15 +250,26 @@ export default function ClientesModule() {
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {filtrados.map((cli) => {
                 const t = TIPOS.find((x) => x.id === cli.tipo) || TIPOS[0];
+                const est = ESTADOS.find((x) => x.id === cli.estado) || null;
+                const cal = CALIFICACIONES.find((x) => x.id === cli.calificacion) || null;
+                const can = CANALES.find((x) => x.id === cli.canal) || null;
+                const dev = desarrollos.find((d) => d.id === cli.devId) || null;
                 return (
                   <div key={cli.id} style={{ background: COLORS.subtle, borderRadius: "6px", padding: "10px", display: "flex", alignItems: "center", gap: "10px" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: "10px", color: COLORS.muted }}>{cli.id}</div>
                       <div style={{ fontSize: "13px", fontWeight: 700 }}>{cli.nombre}</div>
                       <div style={{ fontSize: "11px", color: COLORS.muted }}>
-                        {[cli.contacto || null, cli.origen ? `Origen: ${cli.origen}` : null].filter(Boolean).join(" · ") || "—"}
+                        {[
+                          cli.contacto || null,
+                          can ? can.label : null,
+                          dev ? dev.nombre || dev.id : null,
+                          cli.origen ? `Origen: ${cli.origen}` : null,
+                        ].filter(Boolean).join(" · ") || "—"}
                       </div>
                     </div>
+                    {cal && <span style={S.tag(cal.color)} title="Calificación">{cal.label.toUpperCase()}</span>}
+                    {est && <span style={S.tag(est.color)} title="Estado">{est.label.toUpperCase()}</span>}
                     <span style={S.tag(t.color)}>{t.label.toUpperCase()}</span>
                     <button onClick={() => editar(cli)}
                       style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.text, cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>

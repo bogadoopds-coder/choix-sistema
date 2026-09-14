@@ -121,6 +121,40 @@ export default function ClientesModule() {
     }
   }
 
+  function abrirFicha(cli) {
+    setFichaAbierta(cli);
+    setFichaForm({
+      estado: cli.estado || "nuevo",
+      calificacion: cli.calificacion || "",
+      tipologiaBuscada: cli.tipologiaBuscada || "",
+      presupuestoEstimado: cli.presupuestoEstimado || "",
+      formaPago: cli.formaPago || "",
+      motivo: cli.motivo || "",
+      vendedor: cli.vendedor || "",
+      proximaAccion: cli.proximaAccion || "",
+      notas: cli.notas || "",
+    });
+  }
+  async function guardarFicha() {
+    if (!fichaAbierta) return;
+    setGuardandoFicha(true);
+    setError("");
+    try {
+      await saveCliente(orgId, {
+        id: fichaAbierta.id,
+        ...fichaForm,
+        ultimaInteraccion: new Date().toISOString(),
+      });
+      setFichaAbierta(null);
+      setFichaForm({});
+      await cargar();
+    } catch (e) {
+      setError("No se pudo guardar la ficha.");
+      console.error("Error guardando ficha:", e);
+    }
+    setGuardandoFicha(false);
+  }
+
   const filtrados = useMemo(() => {
     return clientes.filter((c) => {
       if (filtroTipo && c.tipo !== filtroTipo) return false;
@@ -271,6 +305,10 @@ export default function ClientesModule() {
                     {cal && <span style={S.tag(cal.color)} title="Calificación">{cal.label.toUpperCase()}</span>}
                     {est && <span style={S.tag(est.color)} title="Estado">{est.label.toUpperCase()}</span>}
                     <span style={S.tag(t.color)}>{t.label.toUpperCase()}</span>
+                    <button onClick={() => abrirFicha(cli)}
+                      style={{ background: "none", border: `1px solid ${COLORS.gold}`, borderRadius: "6px", color: COLORS.gold, cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
+                      Ficha
+                    </button>
                     <button onClick={() => editar(cli)}
                       style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: "6px", color: COLORS.text, cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
                       Editar
@@ -286,6 +324,107 @@ export default function ClientesModule() {
           )}
         </div>
       </div>
+      {fichaAbierta && (
+        <div onClick={() => setFichaAbierta(null)}
+          style={{ position: "fixed", inset: 0, background: "#00000090", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "20px" }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ ...S.panel, width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+              <div style={{ fontWeight: 800, color: COLORS.gold, fontSize: "14px" }}>{fichaAbierta.nombre}</div>
+              <div style={{ fontSize: "10px", color: COLORS.muted }}>{fichaAbierta.id}</div>
+              <button onClick={() => setFichaAbierta(null)}
+                style={{ marginLeft: "auto", background: "none", border: "none", color: COLORS.muted, cursor: "pointer", fontSize: "16px" }}>✕</button>
+            </div>
+            <div style={{ display: "grid", gap: "12px" }}>
+              <div>
+                <label style={S.label}>Estado</label>
+                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                  {ESTADOS.map((e) => (
+                    <button key={e.id} onClick={() => setFichaForm({ ...fichaForm, estado: e.id })}
+                      style={{ ...S.btn(undefined, true), padding: "5px 9px", fontSize: "11px", cursor: "pointer",
+                        borderColor: fichaForm.estado === e.id ? e.color : COLORS.border,
+                        color: fichaForm.estado === e.id ? e.color : COLORS.muted }}>
+                      {e.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>Calificación</label>
+                <div style={{ display: "flex", gap: "5px" }}>
+                  {CALIFICACIONES.map((c) => (
+                    <button key={c.id} onClick={() => setFichaForm({ ...fichaForm, calificacion: c.id })}
+                      style={{ ...S.btn(undefined, true), padding: "5px 12px", fontSize: "11px", cursor: "pointer",
+                        borderColor: fichaForm.calificacion === c.id ? c.color : COLORS.border,
+                        color: fichaForm.calificacion === c.id ? c.color : COLORS.muted }}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                {fichaAbierta.calificacionSugerida && (
+                  <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "5px" }}>
+                    Sugerida por el agente: <strong>{fichaAbierta.calificacionSugerida}</strong>
+                    {fichaAbierta.fundamentoCalificacion ? ` — ${fichaAbierta.fundamentoCalificacion}` : ""}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <label style={S.label}>Tipología buscada</label>
+                  <input style={S.input} placeholder="Ej: 2 ambientes" value={fichaForm.tipologiaBuscada}
+                    onChange={(e) => setFichaForm({ ...fichaForm, tipologiaBuscada: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Presupuesto estimado</label>
+                  <input style={S.input} placeholder="Ej: USD 90.000" value={fichaForm.presupuestoEstimado}
+                    onChange={(e) => setFichaForm({ ...fichaForm, presupuestoEstimado: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Forma de pago</label>
+                  <input style={S.input} placeholder="Ej: anticipo + 24 cuotas" value={fichaForm.formaPago}
+                    onChange={(e) => setFichaForm({ ...fichaForm, formaPago: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Motivo</label>
+                  <select style={S.input} value={fichaForm.motivo}
+                    onChange={(e) => setFichaForm({ ...fichaForm, motivo: e.target.value })}>
+                    <option value="">— sin especificar —</option>
+                    <option value="vivienda">Vivienda</option>
+                    <option value="inversion">Inversión</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={S.label}>Vendedor responsable</label>
+                  <input style={S.input} placeholder="Ej: Agustín" value={fichaForm.vendedor}
+                    onChange={(e) => setFichaForm({ ...fichaForm, vendedor: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Próxima acción</label>
+                  <input style={S.input} placeholder="Ej: llamar el lunes" value={fichaForm.proximaAccion}
+                    onChange={(e) => setFichaForm({ ...fichaForm, proximaAccion: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label style={S.label}>Notas</label>
+                <textarea style={{ ...S.input, minHeight: "70px", resize: "vertical", fontFamily: "inherit" }}
+                  placeholder="Lo que haga falta recordar de este interesado"
+                  value={fichaForm.notas}
+                  onChange={(e) => setFichaForm({ ...fichaForm, notas: e.target.value })} />
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button style={{ ...S.btn("gold"), flex: 1, padding: "8px", cursor: "pointer", opacity: guardandoFicha ? 0.5 : 1 }}
+                  disabled={guardandoFicha} onClick={guardarFicha}>
+                  {guardandoFicha ? "GUARDANDO..." : "GUARDAR FICHA"}
+                </button>
+                <button style={{ ...S.btn(undefined, true), padding: "8px 12px", cursor: "pointer" }}
+                  onClick={() => setFichaAbierta(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
-import { getClientes, saveCliente, deleteCliente } from "../../services/desarrollosRepo";
+import { getClientes, saveCliente, deleteCliente, getDesarrollos } from "../../services/desarrollosRepo";
 
 const TIPOS = [
   { id: "interesado", label: "Interesado", color: COLORS.amarillo },
@@ -50,6 +50,7 @@ export default function ClientesModule() {
   const [guardandoFicha, setGuardandoFicha] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState(null);
   const [filtroCalificacion, setFiltroCalificacion] = useState(null);
+  const [desarrollos, setDesarrollos] = useState([]);
 
   async function cargar() {
     if (!orgId) return;
@@ -64,6 +65,11 @@ export default function ClientesModule() {
   }
 
   useEffect(() => { cargar(); }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getDesarrollos(orgId).then(setDesarrollos).catch(() => setDesarrollos([]));
+  }, [orgId]);
 
   async function guardar() {
     if (!form.nombre.trim()) return;
@@ -141,7 +147,7 @@ export default function ClientesModule() {
           {resumen.map((t) => (
             <span key={t.id} onClick={() => setFiltroTipo(filtroTipo === t.id ? null : t.id)}
               style={{ ...S.tag(t.color), cursor: "pointer", opacity: filtroTipo && filtroTipo !== t.id ? 0.4 : 1 }}>
-              {t.count} {t.label.toUpperCase()}{t.count !== 1 && t.id !== "lead" ? "ES" : t.count !== 1 && t.id === "lead" ? "S" : ""}
+              {t.count} {t.label.toUpperCase()}{t.count !== 1 ? "S" : ""}
             </span>
           ))}
         </div>
@@ -186,6 +192,26 @@ export default function ClientesModule() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <label style={S.label}>Canal de ingreso</label>
+              <select style={S.input} value={form.canal}
+                onChange={(e) => setForm({ ...form, canal: e.target.value })}>
+                <option value="">— sin especificar —</option>
+                {CANALES.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={S.label}>Desarrollo consultado</label>
+              <select style={S.input} value={form.devId}
+                onChange={(e) => setForm({ ...form, devId: e.target.value })}>
+                <option value="">— ninguno —</option>
+                {desarrollos.map((d) => (
+                  <option key={d.id} value={d.id}>{d.nombre || d.id}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label style={S.label}>Origen</label>

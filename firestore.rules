@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ── Helpers ──
+    function logueado() {
+      return request.auth != null;
+    }
+    function esMiembro(orgId) {
+      return logueado()
+        && exists(/databases/$(database)/documents/orgs/$(orgId)/usuarios/$(request.auth.uid));
+    }
+    // ── Indice miembros: cada uno lee solo el suyo ──
+    match /miembros/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+    // ── Aislamiento por organización ──
+    // Cubre TODAS las subcolecciones de la org: obras (items, certificaciones,
+    // requerimientos, ordenesCompra), proveedores, usuarios, config (precios,
+    // uocra, rendimientos), jobs (trabajos de los agentes en background:
+    // el cliente los LEE via onSnapshot; los escribe el servidor via Admin SDK,
+    // que no pasa por estas reglas) y la mitad inmobiliaria: desarrollos
+    // (con unidades y boletos/cuotas a futuro) y clientes.
+    match /orgs/{orgId}/{document=**} {
+      allow read, write: if esMiembro(orgId);
+    }
+    // ── configuracion: referencia COMPARTIDA entre orgs (decision de producto) ──
+    // Solo contiene preciosAprendidos: valores de mercado sin identidad
+    // comercial. Gobernanza del pool (opt-in, higiene de escrituras) pendiente
+    // de diseno de la capa de conocimiento.
+    match /configuracion/{doc=**} {
+      allow read, write: if logueado();
+    }
+    // ── sistema: CERRADO (legacy del blob, todo migrado a orgs/) ──
+    match /sistema/{doc=**} {
+      allow read, write: if false;
+    }
+    // ── Todo lo demás: cerrado ──
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

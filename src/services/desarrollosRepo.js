@@ -93,16 +93,43 @@ export async function deleteUnidad(orgId, devId, unidadId) {
 
 // ─── Clientes (CRM mínimo: compradores, inversores, leads) ─────────────────
 
-/** Lee los clientes de una org. */
-export async function getClientes(orgId) {
+/**
+ * Lee los clientes de una org.
+ * filtro opcional: { estado, calificacion, devId, vendedor, tipo }
+ * Si no se pasa filtro, devuelve todos (comportamiento anterior, no rompe llamadas existentes).
+ * Ordena por ultimaInteraccion descendente cuando el dato existe.
+ */
+export async function getClientes(orgId, filtro = null) {
   if (!orgId) return [];
   const snap = await getDocs(collection(db, "orgs", orgId, "clientes"));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  let lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  if (filtro) {
+    for (const [campo, valor] of Object.entries(filtro)) {
+      if (valor === undefined || valor === null || valor === "") continue;
+      lista = lista.filter((c) => c[campo] === valor);
+    }
+  }
+  lista.sort((a, b) => (b.ultimaInteraccion || "").localeCompare(a.ultimaInteraccion || ""));
+  return lista;
 }
 
 /**
  * Crea o actualiza un cliente. Si trae id, actualiza; si no, genera cli-XXXX.
- * cliente: { nombre, contacto, tipo (comprador|inversor|lead), origen }
+ * cliente: {
+ *   nombre, contacto, tipo (comprador|inversor|interesado), origen,
+ *   // --- campos comerciales (interesados) ---
+ *   telefono, email, canal (whatsapp|instagram|mail|web|referido|presencial|otro),
+ *   estado (nuevo|contactado|negociacion|reservo|comprador|sin_respuesta|descartado),
+ *   calificacion (alta|media|baja),
+ *   calificacionSugerida, fundamentoCalificacion,  // los propone el agente; el vendedor confirma
+ *   devId,              // desarrollo por el que consultó
+ *   tipologiaBuscada, presupuestoEstimado, formaPago,
+ *   motivo (vivienda|inversion),
+ *   vendedor, proximaAccion,
+ *   primeraConsulta, ultimaInteraccion,  // ISO strings
+ *   notas
+ * }
+ * Todos los campos comerciales son opcionales: setDoc con merge no pisa lo que no venga.
  * Devuelve el id.
  */
 export async function saveCliente(orgId, cliente) {

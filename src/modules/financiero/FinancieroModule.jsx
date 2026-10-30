@@ -4,7 +4,7 @@ import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
-import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso } from "../../services/financieroRepo";
+import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante } from "../../services/financieroRepo";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
@@ -84,6 +84,7 @@ export default function FinancieroModule() {
     { id: "egresos", label: "📤 Egresos" },
     { id: "ingresos", label: "📥 Ingresos" },
     { id: "arqueo", label: "⚖️ Arqueo" },
+    { id: "aportantes", label: "🤝 Financiamiento" },
   ];
 
   return (
@@ -184,6 +185,7 @@ export default function FinancieroModule() {
           {tab === "egresos" && <TabEgresos orgId={orgId} devId={devId} contratos={contratos} fmt={fmt} />}
           {tab === "ingresos" && <TabIngresos orgId={orgId} devId={devId} fmt={fmt} />}
           {tab === "arqueo" && <TabArqueo orgId={orgId} devId={devId} fmt={fmt} />}
+          {tab === "aportantes" && <TabAportantes orgId={orgId} devId={devId} fmt={fmt} />}
         </>
       )}
     </div>
@@ -881,6 +883,96 @@ function TabArqueo({ orgId, devId, fmt }) {
         {informe && (
           <div style={{ marginTop: "10px", padding: "12px", background: COLORS.bg, borderRadius: "6px", border: `1px solid ${COLORS.border}`, fontSize: "12.5px", lineHeight: 1.55, color: COLORS.text, whiteSpace: "pre-wrap" }}>
             {informe}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const FORM_APT_VACIO = { nombre: "", participacion: "" };
+function TabAportantes({ orgId, devId }) {
+  const [aportantes, setAportantes] = useState([]);
+  const [form, setForm] = useState(FORM_APT_VACIO);
+  const [editandoId, setEditandoId] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!orgId || !devId) { setAportantes([]); return; }
+    getAportantes(orgId, devId).then(setAportantes).catch(() => setAportantes([]));
+  }, [orgId, devId]);
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  async function guardar() {
+    setError("");
+    if (!form.nombre.trim()) { setError("El aportante necesita un nombre."); return; }
+    const p = Number(form.participacion);
+    if (!(p > 0) || p > 100) { setError("La participación debe ser un porcentaje entre 0 y 100."); return; }
+    setGuardando(true);
+    try {
+      await saveAportante(orgId, devId, {
+        ...(editandoId ? { id: editandoId } : {}),
+        nombre: form.nombre.trim(),
+        participacion: p,
+        creadoEn: new Date().toISOString(),
+      });
+      setForm(FORM_APT_VACIO); setEditandoId(null);
+      setAportantes(await getAportantes(orgId, devId));
+    } catch (e) { setError("No se pudo guardar: " + e.message); }
+    setGuardando(false);
+  }
+  function editar(a) {
+    setEditandoId(a.id);
+    setForm({ nombre: a.nombre, participacion: String(a.participacion) });
+  }
+  async function borrar(a) {
+    if (!window.confirm(`¿Borrar al aportante ${a.nombre}?`)) return;
+    try { await deleteAportante(orgId, devId, a.id); setAportantes(await getAportantes(orgId, devId)); }
+    catch (e) { setError("No se pudo borrar: " + e.message); }
+  }
+  const totalPct = aportantes.reduce((s, a) => s + (Number(a.participacion) || 0), 0);
+  const cierra = Math.abs(totalPct - 100) < 0.001;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
+          {editandoId ? "Editar aportante" : "Nuevo aportante"}
+        </div>
+        {error && <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 10px", marginBottom: "10px", fontSize: "12px", color: COLORS.rojo }}>{error}</div>}
+        <label style={S.label}>Nombre</label>
+        <input style={S.input} value={form.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Ej: Martín" />
+        <label style={S.label}>Participación (%)</label>
+        <input style={S.input} type="number" min="0" max="100" value={form.participacion} onChange={(e) => set("participacion", e.target.value)} placeholder="Ej: 50" />
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "3px" }}>El % con el que entra a participar. Cada uno debe aportar ese % de los gastos del desarrollo.</div>
+        <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+          <button style={{ ...S.btn(), cursor: "pointer" }} disabled={guardando} onClick={guardar}>
+            {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar aportante"}
+          </button>
+          {editandoId && <button style={{ ...S.btn("blue", true), cursor: "pointer" }} onClick={() => { setEditandoId(null); setForm(FORM_APT_VACIO); setError(""); }}>Cancelar</button>}
+        </div>
+      </div>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
+          Aportantes ({aportantes.length})
+        </div>
+        {aportantes.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Todavía no cargaste aportantes para este desarrollo.</div>}
+        {aportantes.map((a) => (
+          <div key={a.id} style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "8px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: COLORS.text }}>{a.nombre}</div>
+              <div style={{ fontSize: "11px", color: COLORS.muted }}>participación {a.participacion}%</div>
+            </div>
+            <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+              <button style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => editar(a)}>Editar</button>
+              <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(a)}>✕</button>
+            </div>
+          </div>
+        ))}
+        {aportantes.length > 0 && (
+          <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: 700 }}>
+            <span style={{ color: COLORS.text }}>Participación total</span>
+            <span style={{ color: cierra ? COLORS.verde : COLORS.amarillo }}>
+              {totalPct}% {cierra ? "✅" : "⚠️ debería sumar 100%"}
+            </span>
           </div>
         )}
       </div>

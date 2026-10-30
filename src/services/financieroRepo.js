@@ -78,3 +78,23 @@ export async function deleteIngreso(orgId, devId, ingresoId) {
   if (!orgId || !devId || !ingresoId) throw new Error("deleteIngreso: faltan datos");
   await deleteDoc(doc(db, "orgs", orgId, "desarrollos", devId, "ingresos", ingresoId));
 }
+
+// ─── Aportantes (financiamiento del desarrollo) ─────────────────────────────
+export async function getAportantes(orgId, devId) {
+  if (!orgId || !devId) return [];
+  const snap = await getDocs(collection(db, "orgs", orgId, "desarrollos", devId, "aportantes"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function saveAportante(orgId, devId, aportante) {
+  if (!orgId || !devId) throw new Error("saveAportante: faltan orgId o devId");
+  let id = aportante.id || (await nextId(orgId, devId, "aportantes", "apt"));
+  const { id: _o, ...data } = aportante;
+  await setDoc(doc(db, "orgs", orgId, "desarrollos", devId, "aportantes", id), data, { merge: true });
+  return id;
+}
+
+export async function deleteAportante(orgId, devId, aportanteId) {
+  if (!orgId || !devId || !aportanteId) throw new Error("deleteAportante: faltan datos");
+  await deleteDoc(doc(db, "orgs", orgId, "desarrollos", devId, "aportantes", aportanteId));
+}

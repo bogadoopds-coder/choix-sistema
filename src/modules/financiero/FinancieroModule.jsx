@@ -4,7 +4,7 @@ import { COLORS, S } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
-import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante } from "../../services/financieroRepo";
+import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante, getAportesCaja, saveAporteCaja, deleteAporteCaja } from "../../services/financieroRepo";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
@@ -185,7 +185,12 @@ export default function FinancieroModule() {
           {tab === "egresos" && <TabEgresos orgId={orgId} devId={devId} contratos={contratos} fmt={fmt} />}
           {tab === "ingresos" && <TabIngresos orgId={orgId} devId={devId} fmt={fmt} />}
           {tab === "arqueo" && <TabArqueo orgId={orgId} devId={devId} fmt={fmt} />}
-          {tab === "aportantes" && <TabAportantes orgId={orgId} devId={devId} fmt={fmt} />}
+          {tab === "aportantes" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <TabAportantes orgId={orgId} devId={devId} />
+              <TabAportesCaja orgId={orgId} devId={devId} fmt={fmt} />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -975,6 +980,99 @@ function TabAportantes({ orgId, devId }) {
             </span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const FORM_APC_VACIO = { aportanteId: "", monto: "", moneda: "ARS", fecha: new Date().toISOString().slice(0, 10), concepto: "" };
+function TabAportesCaja({ orgId, devId, fmt }) {
+  const [aportantes, setAportantes] = useState([]);
+  const [aportes, setAportes] = useState([]);
+  const [form, setForm] = useState(FORM_APC_VACIO);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!orgId || !devId) { setAportantes([]); setAportes([]); return; }
+    getAportantes(orgId, devId).then(setAportantes).catch(() => setAportantes([]));
+    getAportesCaja(orgId, devId).then(setAportes).catch(() => setAportes([]));
+  }, [orgId, devId]);
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  const nombre = (id) => aportantes.find((a) => a.id === id)?.nombre || "(aportante borrado)";
+  async function guardar() {
+    setError("");
+    if (!form.aportanteId) { setError("Elegí quién hace el aporte."); return; }
+    if (!(Number(form.monto) > 0)) { setError("El monto debe ser mayor a cero."); return; }
+    setGuardando(true);
+    try {
+      await saveAporteCaja(orgId, devId, {
+        aportanteId: form.aportanteId,
+        monto: Number(form.monto),
+        moneda: form.moneda,
+        fecha: form.fecha,
+        concepto: form.concepto.trim(),
+        creadoEn: new Date().toISOString(),
+      });
+      setForm(FORM_APC_VACIO);
+      setAportes(await getAportesCaja(orgId, devId));
+    } catch (e) { setError("No se pudo guardar: " + e.message); }
+    setGuardando(false);
+  }
+  async function borrar(a) {
+    if (!window.confirm("¿Borrar este aporte a la caja?")) return;
+    try { await deleteAporteCaja(orgId, devId, a.id); setAportes(await getAportesCaja(orgId, devId)); }
+    catch (e) { setError("No se pudo borrar: " + e.message); }
+  }
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px", color: COLORS.text }}>Aporte a la caja</div>
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "10px" }}>Plata que cada socio pone en el fondo común. Si la caja no alcanza y alguien paga un gasto de su bolsillo, cargalo también acá como aporte suyo.</div>
+        {error && <div style={{ background: "#ef444420", border: `1px solid ${COLORS.rojo}`, borderRadius: "6px", padding: "8px 10px", marginBottom: "10px", fontSize: "12px", color: COLORS.rojo }}>{error}</div>}
+        <label style={S.label}>Aportante</label>
+        <select style={S.input} value={form.aportanteId} onChange={(e) => set("aportanteId", e.target.value)}>
+          <option value="">— Elegir —</option>
+          {aportantes.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+        </select>
+        {aportantes.length === 0 && <div style={{ fontSize: "11px", color: COLORS.amarillo, marginTop: "3px" }}>Cargá aportantes arriba primero.</div>}
+        <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Monto</label>
+            <input style={S.input} type="number" value={form.monto} onChange={(e) => set("monto", e.target.value)} placeholder="0" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Moneda</label>
+            <select style={S.input} value={form.moneda} onChange={(e) => set("moneda", e.target.value)}>
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <label style={S.label}>Fecha</label>
+        <input style={S.input} type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} />
+        <label style={S.label}>Concepto</label>
+        <input style={S.input} value={form.concepto} onChange={(e) => set("concepto", e.target.value)} placeholder="Opcional" />
+        <div style={{ marginTop: "10px" }}>
+          <button style={{ ...S.btn(), cursor: "pointer" }} disabled={guardando} onClick={guardar}>
+            {guardando ? "Guardando..." : "Agregar aporte"}
+          </button>
+        </div>
+      </div>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>Aportes a la caja ({aportes.length})</div>
+        {aportes.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Todavía no hay aportes a la caja.</div>}
+        {aportes.slice().sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).map((a) => (
+          <div key={a.id} style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "8px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: COLORS.text }}>{nombre(a.aportanteId)}</div>
+              <div style={{ fontSize: "11px", color: COLORS.muted }}>{a.fecha}{a.concepto ? " · " + a.concepto : ""}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.verde }}>{fmt(a.monto, a.moneda)}</span>
+              <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(a)}>✕</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

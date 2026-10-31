@@ -85,6 +85,7 @@ export default function FinancieroModule() {
     { id: "ingresos", label: "📥 Ingresos" },
     { id: "arqueo", label: "⚖️ Arqueo" },
     { id: "aportantes", label: "🤝 Financiamiento" },
+    { id: "posicion", label: "📊 Posición" },
   ];
 
   return (
@@ -191,6 +192,7 @@ export default function FinancieroModule() {
               <TabAportesCaja orgId={orgId} devId={devId} fmt={fmt} />
             </div>
           )}
+          {tab === "posicion" && <TabPosicion orgId={orgId} devId={devId} fmt={fmt} />}
         </>
       )}
     </div>
@@ -1073,6 +1075,100 @@ function TabAportesCaja({ orgId, devId, fmt }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TabPosicion({ orgId, devId, fmt }) {
+  const [aportantes, setAportantes] = useState([]);
+  const [aportes, setAportes] = useState([]);
+  const [ingresos, setIngresos] = useState([]);
+  const [egresos, setEgresos] = useState([]);
+  const [tc, setTc] = useState("1000");
+  const [cargando, setCargando] = useState(true);
+  useEffect(() => {
+    if (!orgId || !devId) { setAportantes([]); setAportes([]); setIngresos([]); setEgresos([]); setCargando(false); return; }
+    setCargando(true);
+    Promise.all([
+      getAportantes(orgId, devId).catch(() => []),
+      getAportesCaja(orgId, devId).catch(() => []),
+      getIngresos(orgId, devId).catch(() => []),
+      getEgresos(orgId, devId).catch(() => []),
+    ]).then(([ap, apc, ing, egr]) => { setAportantes(ap); setAportes(apc); setIngresos(ing); setEgresos(egr); })
+      .finally(() => setCargando(false));
+  }, [orgId, devId]);
+  const tcNum = Number(tc) > 0 ? Number(tc) : 1000;
+  const aUSD = (m, mon) => mon === "USD" ? Number(m || 0) : Number(m || 0) / tcNum;
+  const fmtUSD = (n) => "USD " + Math.round(Number(n) || 0).toLocaleString("es-AR");
+  if (cargando) return <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>Calculando posición...</div>;
+  const totalAportes = aportes.reduce((s, a) => s + aUSD(a.monto, a.moneda), 0);
+  const totalIngresos = ingresos.reduce((s, i) => s + aUSD(i.monto, i.moneda), 0);
+  const totalEgresos = egresos.reduce((s, e) => s + aUSD(e.monto, e.moneda), 0);
+  const caja = totalAportes + totalIngresos - totalEgresos;
+  const filas = aportantes.map((a) => {
+    const aportado = aportes.filter((x) => x.aportanteId === a.id).reduce((s, x) => s + aUSD(x.monto, x.moneda), 0);
+    const correspondia = totalAportes * (Number(a.participacion) || 0) / 100;
+    const saldo = aportado - correspondia;
+    return { ...a, aportado, correspondia, saldo };
+  });
+  const sumaPart = aportantes.reduce((s, a) => s + (Number(a.participacion) || 0), 0);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+        <span style={{ fontSize: "11px", color: COLORS.muted }}>Consolidado en USD · TC $</span>
+        <input type="number" value={tc} onChange={(e) => setTc(e.target.value)} style={{ ...S.input, width: "90px", margin: 0, padding: "4px 8px", fontSize: "12px" }} />
+      </div>
+      <div style={{ ...S.panel, marginBottom: "12px" }}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "8px" }}>Caja del desarrollo</div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "2px 0" }}>
+          <span style={{ color: COLORS.muted }}>Aportes de socios</span><span style={{ color: COLORS.verde }}>{fmtUSD(totalAportes)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "2px 0" }}>
+          <span style={{ color: COLORS.muted }}>Ventas / ingresos</span><span style={{ color: COLORS.verde }}>{fmtUSD(totalIngresos)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "2px 0" }}>
+          <span style={{ color: COLORS.muted }}>Gastos</span><span style={{ color: COLORS.rojo }}>− {fmtUSD(totalEgresos)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "15px", padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: "4px" }}>
+          <span style={{ color: COLORS.text, fontWeight: 800 }}>Caja disponible</span>
+          <span style={{ color: caja >= 0 ? COLORS.verde : COLORS.rojo, fontWeight: 800 }}>{fmtUSD(caja)}</span>
+        </div>
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Esta caja se reparte entre los socios por su participación recién al cierre del desarrollo.</div>
+      </div>
+      <div style={S.panel}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "4px" }}>Posición de cada socio</div>
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "10px" }}>Compara lo que puso cada uno contra su parte (su % del total aportado). Saldo a favor = se le debe; en contra = debe. La compensación la negocian entre ustedes.</div>
+        {sumaPart !== 100 && aportantes.length > 0 && <div style={{ fontSize: "11px", color: COLORS.amarillo, marginBottom: "8px" }}>⚠️ Las participaciones suman {sumaPart}%, no 100%. Corregilo en Financiamiento para que el cálculo sea correcto.</div>}
+        {filas.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Cargá aportantes y aportes en el tab 🤝 Financiamiento.</div>}
+        {filas.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead>
+                <tr style={{ color: COLORS.muted, textAlign: "right" }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Socio</th>
+                  <th style={{ padding: "6px 8px" }}>Particip.</th>
+                  <th style={{ padding: "6px 8px" }}>Aportó</th>
+                  <th style={{ padding: "6px 8px" }}>Le correspondía</th>
+                  <th style={{ padding: "6px 8px" }}>Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((f) => (
+                  <tr key={f.id} style={{ borderTop: `1px solid ${COLORS.border}`, textAlign: "right" }}>
+                    <td style={{ padding: "6px 8px", textAlign: "left", fontWeight: 600, color: COLORS.text }}>{f.nombre}</td>
+                    <td style={{ padding: "6px 8px", color: COLORS.muted }}>{f.participacion}%</td>
+                    <td style={{ padding: "6px 8px", color: COLORS.text }}>{fmtUSD(f.aportado)}</td>
+                    <td style={{ padding: "6px 8px", color: COLORS.muted }}>{fmtUSD(f.correspondia)}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 700, color: f.saldo >= 0 ? COLORS.verde : COLORS.rojo }}>
+                      {f.saldo >= 0 ? "+" : "−"}{fmtUSD(Math.abs(f.saldo))} {f.saldo >= 0 ? "(se le debe)" : "(debe)"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

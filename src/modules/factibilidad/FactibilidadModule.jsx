@@ -479,11 +479,11 @@ export default function FactibilidadModule() {
   );
 }
 const TIPOLOGIAS_DEFAULT = [
-  { id: "mono", label: "Monoambiente", m2: 30, icono: "🏠", esCochera: false },
-  { id: "amb2", label: "2 amb (1 dorm)", m2: 35, icono: "🏠", esCochera: false },
-  { id: "amb3", label: "3 amb (2 dorm)", m2: 54, icono: "🏠", esCochera: false },
-  { id: "amb4", label: "4 amb (3 dorm)", m2: 72, icono: "🏠", esCochera: false },
-  { id: "cochera", label: "Cochera", m2: 25, icono: "🚗", esCochera: true },
+  { id: "mono", label: "Monoambiente", m2: 30, icono: "🏠", esCochera: false, dorms: 1 },
+  { id: "amb2", label: "2 amb (1 dorm)", m2: 35, icono: "🏠", esCochera: false, dorms: 1 },
+  { id: "amb3", label: "3 amb (2 dorm)", m2: 54, icono: "🏠", esCochera: false, dorms: 2 },
+  { id: "amb4", label: "4 amb (3 dorm)", m2: 72, icono: "🏠", esCochera: false, dorms: 3 },
+  { id: "cochera", label: "Cochera", m2: 25, icono: "🚗", esCochera: true, dorms: 0 },
 ];
 const LS_TIPOLOGIAS = "praxia_tipologias_m2";
 const LS_FACTOR = "praxia_factor_aprovechamiento";
@@ -507,6 +507,26 @@ function leerCUF(indicadores) {
   }
   return res;
 }
+function parseNumeroIndicador(raw) {
+  const m = String(raw ?? "").match(/\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/);
+  if (!m) return NaN;
+  return parseFloat(m[0].replace(/\./g, "").replace(",", "."));
+}
+function leerDensidad(indicadores) {
+  const vals = [];
+  for (const i of (indicadores || [])) {
+    const nombre = (i.nombre || "").toLowerCase();
+    if (!nombre.includes("densidad")) continue;
+    const valor = parseNumeroIndicador(i.valor);
+    if (!(valor > 0)) continue;
+    vals.push({ nombre, valor });
+  }
+  const residencial = vals.find((v) => v.nombre.includes("residencial"));
+  if (residencial) return residencial.valor;
+  const maxima = vals.find((v) => v.nombre.includes("máx") || v.nombre.includes("max"));
+  if (maxima) return maxima.valor;
+  return vals.length ? vals[0].valor : null;
+}
 function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores = [], frenteViaInicial = "verificar" }) {
   const [abierto, setAbierto] = useState(false);
   const [tipologias, setTipologias] = useState(() => cargarM2Guardados() || TIPOLOGIAS_DEFAULT);
@@ -519,6 +539,7 @@ function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores =
   const [tipoVia, setTipoVia] = useState(frenteViaInicial === "avenida" || frenteViaInicial === "calle" ? frenteViaInicial : "calle");
   const viaDefinidaEnCarga = frenteViaInicial === "avenida" || frenteViaInicial === "calle";
   const [cufManual, setCufManual] = useState("");
+  const [densidadManual, setDensidadManual] = useState("");
   useEffect(() => {
     try { localStorage.setItem(LS_FACTOR, factor); } catch {}
   }, [factor]);
@@ -556,6 +577,12 @@ function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores =
   }
   // Las cocheras NO cuentan para el CUF (Art 162)
   const excedeCUF = ufMax != null && totalUnidades > ufMax;
+  const densidadDetectada = leerDensidad(indicadores);
+  const densidadUsada = Number(densidadManual) > 0 ? Number(densidadManual) : (densidadDetectada || 0);
+  const personasMax = (superficieParcela / 10000) * densidadUsada;
+  const techoDorm = Math.floor(personasMax / 2);
+  const dormProyectados = tipologias.reduce((s, t) => s + (cant[t.id] || 0) * (t.dorms || 0), 0);
+  const excedeDorm = dormProyectados > techoDorm;
   const setC = (id, v) => setCant((c) => ({ ...c, [id]: Math.max(0, Math.floor(Number(v) || 0)) }));
   const fmt = (n) => Number(n).toLocaleString("es-AR");
   const pct = (n) => totalUnidades > 0 ? Math.round((n / totalUnidades) * 100) : 0;
@@ -682,6 +709,29 @@ function SimuladorUnidades({ m2Edificables, superficieParcela = 0, indicadores =
                     </div>
                   </>
                 )}
+              </>
+            )}
+          </div>
+          {/* ── LÍMITE POR DENSIDAD (DORMITORIOS) ── */}
+          <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: `1px solid ${COLORS.border}` }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "6px" }}>Límite por densidad (dormitorios)</div>
+            {!(densidadUsada > 0) ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "10.5px", color: COLORS.amarillo }}>No detecté la densidad residencial en el análisis. Cargala (hab/ha de la ficha):</span>
+                <input type="number" min="1" value={densidadManual} onChange={(e) => setDensidadManual(e.target.value)}
+                  placeholder="hab/ha" style={{ ...S.input, width: "70px", margin: 0, padding: "3px 6px", fontSize: "11px" }} />
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "4px" }}>
+                  {fmt(superficieParcela)} m² = {(superficieParcela / 10000).toLocaleString("es-AR")} ha × {fmt(densidadUsada)} hab/ha = {fmt(personasMax)} personas ÷ 2 por dormitorio = <b style={{ color: COLORS.text }}>{techoDorm} dormitorios máximos</b> (Art. 157)
+                  {densidadManual && Number(densidadManual) > 0 ? " · densidad ingresada a mano" : " · densidad del análisis"}
+                </div>
+                <div style={{ textAlign: "center", fontSize: "12px", fontWeight: 700, color: excedeDorm ? COLORS.rojo : COLORS.verde }}>
+                  {excedeDorm
+                    ? `⚠️ Te pasás en dormitorios — proyectás ${dormProyectados} pero el máximo es ${techoDorm}`
+                    : `✅ Dentro de la densidad — ${dormProyectados} de ${techoDorm} dormitorios`}
+                </div>
               </>
             )}
           </div>

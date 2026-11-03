@@ -156,7 +156,7 @@ function PraxiaApp() {
           {activeModule === "clientes" && <ClientesModule />}
           {activeModule === "mercado" && <MercadoModule />}
           {activeModule === "factibilidad" && <FactibilidadModule />}
-          {activeModule === "financiero" && <FinancieroModule />}
+          {activeModule === "financiero" && <FinancieroModule BASE={BASE} />}
         </div>
       </div>
 

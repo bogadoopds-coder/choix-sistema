@@ -5,12 +5,13 @@ import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
 import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante, getAportesCaja, saveAporteCaja, deleteAporteCaja } from "../../services/financieroRepo";
+import { BASE } from "../../data/priceBase";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
   "Yeso/Durlock", "Cubiertas", "Ascensores", "Vidrios", "Otro"];
 
-const FORM_CTR_VACIO = { nombre: "", rubro: "", montoTotal: "", moneda: "ARS", avancePct: "0", estado: "activo", notas: "" };
+const FORM_CTR_VACIO = { nombre: "", rubro: "", montoTotal: "", moneda: "ARS", avancePct: "0", estado: "activo", notas: "", itemsAcopio: [] };
 
 export default function FinancieroModule() {
   const { orgId } = useAuth();
@@ -55,6 +56,13 @@ export default function FinancieroModule() {
         avancePct: Number(form.avancePct) || 0,
         estado: form.estado,
         notas: form.notas.trim(),
+        itemsAcopio: (form.itemsAcopio || []).map((it) => ({
+          k: it.k,
+          codigo: it.codigo || "",
+          desc: (it.desc || "").trim(),
+          um: (it.um || "UN").trim() || "UN",
+          cant: Number(it.cant) || 0,
+        })).filter((it) => it.desc),
         creadoEn: new Date().toISOString(),
       });
       setForm(FORM_CTR_VACIO); setEditandoId(null);
@@ -66,7 +74,8 @@ export default function FinancieroModule() {
   function editar(c) {
     setEditandoId(c.id);
     setForm({ nombre: c.nombre, rubro: c.rubro, montoTotal: String(c.montoTotal),
-      moneda: c.moneda, avancePct: String(c.avancePct), estado: c.estado, notas: c.notas || "" });
+      moneda: c.moneda, avancePct: String(c.avancePct), estado: c.estado, notas: c.notas || "",
+      itemsAcopio: (c.itemsAcopio || []).map((it) => ({ ...it, cant: it.cant === 0 || it.cant ? String(it.cant) : "" })) });
   }
 
   async function borrar(c) {
@@ -152,6 +161,7 @@ export default function FinancieroModule() {
                 </select>
                 <label style={S.label}>Notas</label>
                 <input style={S.input} value={form.notas} onChange={(e) => set("notas", e.target.value)} placeholder="Condiciones, forma de pago, etc." />
+                <ItemsAcopioEditor items={form.itemsAcopio} setItems={(itemsAcopio) => set("itemsAcopio", itemsAcopio)} BASE={BASE} />
                 <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                   <button style={{ ...S.btn(), cursor: "pointer" }} disabled={guardando} onClick={guardar}>
                     {guardando ? "Guardando..." : editandoId ? "Guardar cambios" : "Agregar contrato"}
@@ -166,17 +176,28 @@ export default function FinancieroModule() {
                 </div>
                 {contratos.length === 0 && <div style={{ color: COLORS.muted, fontSize: "12px" }}>Todavía no cargaste contratos para este desarrollo.</div>}
                 {contratos.map((c) => (
-                  <div key={c.id} style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "8px 0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: COLORS.text }}>{c.nombre}</div>
-                      <div style={{ fontSize: "11px", color: COLORS.muted }}>
-                        {c.rubro} · {fmt(c.montoTotal, c.moneda)} · avance {c.avancePct}% · {c.estado}
+                  <div key={c.id} style={{ borderBottom: `1px solid ${COLORS.border}`, padding: "8px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "13px", fontWeight: 600, color: COLORS.text }}>{c.nombre}</div>
+                        <div style={{ fontSize: "11px", color: COLORS.muted }}>
+                          {c.rubro} · {fmt(c.montoTotal, c.moneda)} · avance {c.avancePct}% · {c.estado}
+                          {(c.itemsAcopio || []).length > 0 ? ` · ${c.itemsAcopio.length} material${c.itemsAcopio.length === 1 ? "" : "es"} en acopio` : ""}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                        <button style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => editar(c)}>Editar</button>
+                        <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(c)}>✕</button>
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                      <button style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => editar(c)}>Editar</button>
-                      <button style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "3px 8px" }} onClick={() => borrar(c)}>✕</button>
-                    </div>
+                    {((c.itemsAcopio || []).length > 0 || (c.entregas || []).length > 0) && (
+                      <SeguimientoAcopio
+                        contrato={c}
+                        orgId={orgId}
+                        devId={devId}
+                        onSaved={async () => setContratos(await getContratos(orgId, devId))}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -193,6 +214,185 @@ export default function FinancieroModule() {
             </div>
           )}
           {tab === "posicion" && <TabPosicion orgId={orgId} devId={devId} fmt={fmt} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Picker de material: busca en la base de precios o permite texto libre ───
+function MaterialPicker({ BASE = [], onPick }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const resultados = q.length >= 2
+    ? BASE.filter((b) => (b.desc || "").toLowerCase().includes(q.toLowerCase()) || String(b.codigo || "").includes(q)).slice(0, 8)
+    : [];
+  return (
+    <div>
+      <div style={{ position: "relative" }}>
+        <input style={{ ...S.input, margin: 0 }} value={q} placeholder="Buscar material en la base, o escribir uno nuevo…"
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)} />
+        {open && resultados.length > 0 && (
+          <div style={{ position: "absolute", top: "100%", zIndex: 5, left: 0, right: 0, marginTop: "2px", background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: "6px", maxHeight: "180px", overflowY: "auto" }}>
+            {resultados.map((b) => (
+              <div key={b.codigo} onMouseDown={(e) => e.preventDefault()} onClick={() => { onPick({ codigo: b.codigo, desc: b.desc, um: b.um || "UN" }); setQ(""); setOpen(false); }}
+                style={{ padding: "6px 8px", cursor: "pointer", fontSize: "11px", borderBottom: `1px solid ${COLORS.border}` }}>
+                <span style={{ color: COLORS.muted, marginRight: "6px" }}>{b.codigo}</span>{b.desc} <span style={{ color: COLORS.muted }}>({b.um})</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {q.trim().length >= 2 && (
+        <div style={{ marginTop: "4px" }}>
+          <button type="button" style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "10px", padding: "2px 8px" }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { onPick({ codigo: "", desc: q.trim(), um: "UN" }); setQ(""); setOpen(false); }}>
+            + Agregar "{q.trim()}" como material nuevo
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Editor de materiales acopiados (dentro del formulario de contrato) ───
+function ItemsAcopioEditor({ items, setItems, BASE }) {
+  const nuevoKey = () => "ai" + Math.random().toString(36).slice(2, 8);
+  function agregar(mat) { setItems([...(items || []), { k: nuevoKey(), codigo: mat.codigo, desc: mat.desc, um: mat.um, cant: "" }]); }
+  function setCant(k, v) { setItems((items || []).map((it) => (it.k === k ? { ...it, cant: v } : it))); }
+  function setUm(k, v) { setItems((items || []).map((it) => (it.k === k ? { ...it, um: v } : it))); }
+  function quitar(k) { setItems((items || []).filter((it) => it.k !== k)); }
+  return (
+    <div style={{ marginTop: "8px", padding: "10px", background: COLORS.subtle, borderRadius: "6px" }}>
+      <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "6px" }}>Materiales acopiados</div>
+      {(items || []).length === 0 && <div style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "6px" }}>Agregá los materiales de este acopio con su cantidad total.</div>}
+      {(items || []).map((it) => (
+        <div key={it.k} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "5px", fontSize: "11px" }}>
+          <span style={{ flex: 1, color: COLORS.text, minWidth: 0 }}>{it.codigo ? <span style={{ color: COLORS.muted, marginRight: "6px" }}>{it.codigo}</span> : null}{it.desc}</span>
+          <input type="number" min="0" value={it.cant} onChange={(e) => setCant(it.k, e.target.value)} placeholder="cant."
+            style={{ ...S.input, width: "72px", margin: 0, padding: "3px 6px", textAlign: "center" }} />
+          <input value={it.um} onChange={(e) => setUm(it.k, e.target.value)} placeholder="UN"
+            style={{ ...S.input, width: "52px", margin: 0, padding: "3px 6px", textAlign: "center" }} />
+          <button type="button" onClick={() => quitar(it.k)} style={{ background: "none", border: `1px solid ${COLORS.rojo}`, color: COLORS.rojo, borderRadius: "4px", cursor: "pointer", fontSize: "11px", padding: "2px 7px" }}>✕</button>
+        </div>
+      ))}
+      <div style={{ marginTop: "6px" }}>
+        <MaterialPicker BASE={BASE} onPick={agregar} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Seguimiento de acopio: entregas registradas y saldo por entregar ───
+function SeguimientoAcopio({ contrato, orgId, devId, onSaved }) {
+  const [abierto, setAbierto] = useState(false);
+  const [reg, setReg] = useState(false);
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [remito, setRemito] = useState("");
+  const [cant, setCant] = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [errorEntrega, setErrorEntrega] = useState("");
+  const items = contrato.itemsAcopio || [];
+  const entregas = contrato.entregas || [];
+  const entregadoDe = (k) => entregas.reduce((s, e) => s + (((e.lineas || []).find((l) => l.k === k) || {}).cant || 0), 0);
+  const nf = (n) => Number(n || 0).toLocaleString("es-AR");
+  async function registrar() {
+    const lineas = items.map((it) => ({ k: it.k, cant: Number(cant[it.k]) || 0 })).filter((l) => l.cant > 0);
+    if (lineas.length === 0) { setErrorEntrega("Indicá la cantidad de al menos un material."); return; }
+    setErrorEntrega("");
+    setGuardando(true);
+    try {
+      const nuevasEntregas = [...entregas, { id: "ent" + Math.random().toString(36).slice(2, 8), fecha, remito: remito.trim(), lineas }];
+      await saveContrato(orgId, devId, { id: contrato.id, entregas: nuevasEntregas });
+      setReg(false); setRemito(""); setCant({});
+      await onSaved();
+    } catch (e) { setErrorEntrega("No se pudo guardar la entrega."); }
+    setGuardando(false);
+  }
+  const todoEntregado = items.length > 0 && items.every((it) => entregadoDe(it.k) >= Number(it.cant));
+  return (
+    <div style={{ marginTop: "8px", padding: "10px", background: COLORS.subtle, borderRadius: "6px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: abierto ? "8px" : "0" }}>
+        <button type="button" onClick={() => setAbierto((a) => !a)} style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "10.5px", padding: "3px 9px" }}>
+          📦 {abierto ? "Ocultar entregas" : "Entregas del acopio"}
+        </button>
+        {items.length > 0 && (
+          <span style={{ fontSize: "10.5px", fontWeight: 700, color: todoEntregado ? COLORS.verde : COLORS.amarillo }}>
+            {todoEntregado ? "✅ Todo entregado" : "⏳ Falta entregar material"}
+          </span>
+        )}
+      </div>
+      {abierto && (
+        <>
+          {items.map((it) => {
+            const ent = entregadoDe(it.k);
+            const falta = Math.max(0, Number(it.cant) - ent);
+            const pct = Number(it.cant) > 0 ? Math.min(100, (ent / Number(it.cant)) * 100) : 0;
+            return (
+              <div key={it.k} style={{ marginBottom: "7px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "2px", gap: "8px" }}>
+                  <span style={{ color: COLORS.text }}>{it.desc}</span>
+                  <span style={{ color: COLORS.muted, textAlign: "right" }}>
+                    entregado {nf(ent)} / {nf(it.cant)} {it.um} · <b style={{ color: falta > 0 ? COLORS.amarillo : COLORS.verde }}>falta {nf(falta)}</b>
+                  </span>
+                </div>
+                <div style={{ height: "7px", background: COLORS.border, borderRadius: "4px", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: pct + "%", background: falta > 0 ? COLORS.amarillo : COLORS.verde }} />
+                </div>
+              </div>
+            );
+          })}
+          {entregas.length > 0 && (
+            <div style={{ marginTop: "8px", borderTop: `1px solid ${COLORS.border}`, paddingTop: "6px" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: 700, color: COLORS.gold, marginBottom: "4px" }}>Entregas registradas</div>
+              {entregas.map((e) => (
+                <div key={e.id} style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "3px" }}>
+                  {e.fecha}{e.remito ? " · Remito " + e.remito : ""} · {(e.lineas || []).map((l) => {
+                    const it = items.find((x) => x.k === l.k);
+                    return (it ? it.desc : l.k) + " " + nf(l.cant) + (it ? " " + it.um : "");
+                  }).join(" · ")}
+                </div>
+              ))}
+            </div>
+          )}
+          {reg ? (
+            <div style={{ marginTop: "8px", borderTop: `1px solid ${COLORS.border}`, paddingTop: "8px" }}>
+              <div style={{ display: "flex", gap: "6px", marginBottom: "6px", flexWrap: "wrap" }}>
+                <div>
+                  <label style={S.label}>Fecha</label>
+                  <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ ...S.input, margin: 0, width: "140px" }} />
+                </div>
+                <div>
+                  <label style={S.label}>N° de remito</label>
+                  <input value={remito} onChange={(e) => setRemito(e.target.value)} placeholder="opcional" style={{ ...S.input, margin: 0, width: "120px" }} />
+                </div>
+              </div>
+              {items.map((it) => {
+                const falta = Math.max(0, Number(it.cant) - entregadoDe(it.k));
+                return (
+                  <div key={it.k} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px", fontSize: "11px" }}>
+                    <span style={{ flex: 1, color: COLORS.text }}>{it.desc} <span style={{ color: COLORS.muted }}>(falta {nf(falta)} {it.um})</span></span>
+                    <input type="number" min="0" value={cant[it.k] || ""} onChange={(e) => setCant((c) => ({ ...c, [it.k]: e.target.value }))} placeholder="0"
+                      style={{ ...S.input, width: "80px", margin: 0, padding: "3px 6px", textAlign: "center" }} />
+                  </div>
+                );
+              })}
+              {errorEntrega && <div style={{ fontSize: "11px", color: COLORS.rojo, marginTop: "4px" }}>{errorEntrega}</div>}
+              <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                <button type="button" onClick={registrar} disabled={guardando} style={{ ...S.btn(), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>
+                  {guardando ? "Guardando…" : "Guardar entrega"}
+                </button>
+                <button type="button" onClick={() => { setReg(false); setCant({}); setRemito(""); setErrorEntrega(""); }} style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setReg(true)} style={{ ...S.btn("gold", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px", marginTop: "8px" }}>
+              + Registrar entrega
+            </button>
+          )}
         </>
       )}
     </div>

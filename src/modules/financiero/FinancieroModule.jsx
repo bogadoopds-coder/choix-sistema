@@ -6,11 +6,11 @@ import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
 import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante, getAportesCaja, saveAporteCaja, deleteAporteCaja } from "../../services/financieroRepo";
 
-const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
+const RUBROS = ["Movimiento de suelo", "Estructura", "Hormigón", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
-  "Yeso/Durlock", "Cubiertas", "Ascensores", "Vidrios", "Otro"];
+  "Yeso/Durlock", "Cubiertas", "Zinguería", "Vidrios", "Ascensores", "Corralón", "Otro"];
 
-const FORM_CTR_VACIO = { nombre: "", rubro: "", montoTotal: "", moneda: "ARS", avancePct: "0", estado: "activo", notas: "", itemsAcopio: [] };
+const FORM_CTR_VACIO = { nombre: "", rubro: "", montoTotal: "", moneda: "ARS", fechaContrato: "", avancePct: "0", estado: "activo", notas: "", itemsAcopio: [] };
 
 export default function FinancieroModule({ BASE = [] }) {
   const { orgId } = useAuth();
@@ -52,6 +52,7 @@ export default function FinancieroModule({ BASE = [] }) {
         rubro: form.rubro || "Otro",
         montoTotal: Number(form.montoTotal),
         moneda: form.moneda,
+        fechaContrato: form.fechaContrato || "",
         avancePct: Number(form.avancePct) || 0,
         estado: form.estado,
         notas: form.notas.trim(),
@@ -73,7 +74,7 @@ export default function FinancieroModule({ BASE = [] }) {
   function editar(c) {
     setEditandoId(c.id);
     setForm({ nombre: c.nombre, rubro: c.rubro, montoTotal: String(c.montoTotal),
-      moneda: c.moneda, avancePct: String(c.avancePct), estado: c.estado, notas: c.notas || "",
+      moneda: c.moneda, fechaContrato: c.fechaContrato || "", avancePct: String(c.avancePct), estado: c.estado, notas: c.notas || "",
       itemsAcopio: (c.itemsAcopio || []).map((it) => ({ ...it, cant: it.cant === 0 || it.cant ? String(it.cant) : "" })) });
   }
 
@@ -150,6 +151,8 @@ export default function FinancieroModule({ BASE = [] }) {
                     </select>
                   </div>
                 </div>
+                <label style={S.label}>Fecha del contrato</label>
+                <input style={S.input} type="date" value={form.fechaContrato} onChange={(e) => set("fechaContrato", e.target.value)} />
                 <label style={S.label}>Avance de obra (%)</label>
                 <input style={S.input} type="number" min="0" max="100" value={form.avancePct} onChange={(e) => set("avancePct", e.target.value)} />
                 <label style={S.label}>Estado</label>

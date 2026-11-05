@@ -5,7 +5,6 @@ import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
 import { getContratos, saveContrato, deleteContrato, getEgresos, saveEgreso, deleteEgreso, getIngresos, saveIngreso, deleteIngreso, getAportantes, saveAportante, deleteAportante, getAportesCaja, saveAporteCaja, deleteAporteCaja } from "../../services/financieroRepo";
-import { BASE } from "../../data/priceBase";
 
 const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalación eléctrica",
   "Instalación sanitaria", "Instalación termomecánica", "Carpinterías", "Pintura",
@@ -13,7 +12,7 @@ const RUBROS = ["Movimiento de suelo", "Estructura", "Albañilería", "Instalaci
 
 const FORM_CTR_VACIO = { nombre: "", rubro: "", montoTotal: "", moneda: "ARS", avancePct: "0", estado: "activo", notas: "", itemsAcopio: [] };
 
-export default function FinancieroModule() {
+export default function FinancieroModule({ BASE = [] }) {
   const { orgId } = useAuth();
   const [desarrollos, setDesarrollos] = useState([]);
   const [devId, setDevId] = useState("");
@@ -418,7 +417,7 @@ const ESTADOS_FISCAL = [
   { id: "pendiente", label: "Pendiente" },
 ];
 
-const FORM_EGR_VACIO = { categoria: "contratista", contratoId: "", concepto: "", monto: "", moneda: "ARS", estadoFiscal: "con_factura", fecha: new Date().toISOString().slice(0, 10), medioPago: "transferencia", notas: "" };
+const FORM_EGR_VACIO = { categoria: "contratista", contratoId: "", concepto: "", monto: "", moneda: "ARS", tc: "", estadoFiscal: "con_factura", fecha: new Date().toISOString().slice(0, 10), medioPago: "transferencia", notas: "" };
 
 function TabEgresos({ orgId, devId, contratos, fmt }) {
   const [egresos, setEgresos] = useState([]);
@@ -448,6 +447,7 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
         concepto: form.concepto.trim(),
         monto: Number(form.monto),
         moneda: form.moneda,
+        tc: form.moneda === "ARS" ? (Number(form.tc) || 0) : 0,
         estadoFiscal: form.estadoFiscal,
         fecha: form.fecha,
         medioPago: form.medioPago,
@@ -463,7 +463,7 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
   function editar(e) {
     setEditandoId(e.id);
     setForm({ categoria: e.categoria, contratoId: e.contratoId || "", concepto: e.concepto,
-      monto: String(e.monto), moneda: e.moneda, estadoFiscal: e.estadoFiscal,
+      monto: String(e.monto), moneda: e.moneda, tc: e.tc != null ? String(e.tc) : "", estadoFiscal: e.estadoFiscal,
       fecha: e.fecha, medioPago: e.medioPago, notas: e.notas || "" });
   }
 
@@ -533,6 +533,12 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
               <option value="USD">USD</option>
             </select>
           </div>
+          {form.moneda === "ARS" && (
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Dólar del día</label>
+              <input style={S.input} type="number" value={form.tc} onChange={(e) => set("tc", e.target.value)} placeholder="ej 1530" />
+            </div>
+          )}
         </div>
 
         <label style={S.label}>Estado fiscal</label>
@@ -639,7 +645,7 @@ const CATEGORIAS_INGRESO = [
   { id: "otro", label: "Otro" },
 ];
 
-const FORM_ING_VACIO = { categoria: "venta_cuota", clienteId: "", nombreLibre: "", concepto: "", monto: "", moneda: "ARS", estadoFiscal: "con_factura", fecha: new Date().toISOString().slice(0, 10), medioPago: "transferencia", notas: "" };
+const FORM_ING_VACIO = { categoria: "venta_cuota", clienteId: "", nombreLibre: "", concepto: "", monto: "", moneda: "ARS", tc: "", estadoFiscal: "con_factura", fecha: new Date().toISOString().slice(0, 10), medioPago: "transferencia", notas: "" };
 
 function TabIngresos({ orgId, devId, fmt }) {
   const [ingresos, setIngresos] = useState([]);
@@ -730,6 +736,7 @@ function TabIngresos({ orgId, devId, fmt }) {
         concepto: form.concepto.trim(),
         monto: Number(form.monto),
         moneda: form.moneda,
+        tc: form.moneda === "ARS" ? (Number(form.tc) || 0) : 0,
         estadoFiscal: form.estadoFiscal,
         fecha: form.fecha,
         medioPago: form.medioPago,
@@ -745,7 +752,7 @@ function TabIngresos({ orgId, devId, fmt }) {
   function editar(i) {
     setEditandoId(i.id);
     setForm({ categoria: i.categoria, clienteId: i.clienteId || "", nombreLibre: i.nombreLibre || "",
-      concepto: i.concepto, monto: String(i.monto), moneda: i.moneda, estadoFiscal: i.estadoFiscal,
+      concepto: i.concepto, monto: String(i.monto), moneda: i.moneda, tc: i.tc != null ? String(i.tc) : "", estadoFiscal: i.estadoFiscal,
       fecha: i.fecha, medioPago: i.medioPago, notas: i.notas || "" });
   }
 
@@ -837,6 +844,12 @@ function TabIngresos({ orgId, devId, fmt }) {
               <option value="USD">USD</option>
             </select>
           </div>
+          {form.moneda === "ARS" && (
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Dólar del día</label>
+              <input style={S.input} type="number" value={form.tc} onChange={(e) => set("tc", e.target.value)} placeholder="ej 1530" />
+            </div>
+          )}
         </div>
 
         <label style={S.label}>Estado fiscal</label>
@@ -1187,7 +1200,7 @@ function TabAportantes({ orgId, devId }) {
   );
 }
 
-const FORM_APC_VACIO = { aportanteId: "", monto: "", moneda: "ARS", fecha: new Date().toISOString().slice(0, 10), concepto: "" };
+const FORM_APC_VACIO = { aportanteId: "", monto: "", moneda: "ARS", tc: "", fecha: new Date().toISOString().slice(0, 10), concepto: "" };
 function TabAportesCaja({ orgId, devId, fmt }) {
   const [aportantes, setAportantes] = useState([]);
   const [aportes, setAportes] = useState([]);
@@ -1211,6 +1224,7 @@ function TabAportesCaja({ orgId, devId, fmt }) {
         aportanteId: form.aportanteId,
         monto: Number(form.monto),
         moneda: form.moneda,
+        tc: form.moneda === "ARS" ? (Number(form.tc) || 0) : 0,
         fecha: form.fecha,
         concepto: form.concepto.trim(),
         creadoEn: new Date().toISOString(),
@@ -1249,6 +1263,12 @@ function TabAportesCaja({ orgId, devId, fmt }) {
               <option value="USD">USD</option>
             </select>
           </div>
+          {form.moneda === "ARS" && (
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Dólar del día</label>
+              <input style={S.input} type="number" value={form.tc} onChange={(e) => set("tc", e.target.value)} placeholder="ej 1530" />
+            </div>
+          )}
         </div>
         <label style={S.label}>Fecha</label>
         <input style={S.input} type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} />
@@ -1298,29 +1318,65 @@ function TabPosicion({ orgId, devId, fmt }) {
     ]).then(([ap, apc, ing, egr]) => { setAportantes(ap); setAportes(apc); setIngresos(ing); setEgresos(egr); })
       .finally(() => setCargando(false));
   }, [orgId, devId]);
-  const tcNum = Number(tc) > 0 ? Number(tc) : 1000;
-  const aUSD = (m, mon) => mon === "USD" ? Number(m || 0) : Number(m || 0) / tcNum;
+  const tcRefNum = Number(tc) > 0 ? Number(tc) : 1000;
+  const aUSDmov = (m) => {
+    if (m.moneda === "USD") return Number(m.monto || 0);
+    const t = Number(m.tc) > 0 ? Number(m.tc) : tcRefNum;
+    return Number(m.monto || 0) / t;
+  };
+  const sumaARS = (arr) => arr.filter((x) => x.moneda === "ARS").reduce((s, x) => s + Number(x.monto || 0), 0);
+  const sumaUSD = (arr) => arr.filter((x) => x.moneda === "USD").reduce((s, x) => s + Number(x.monto || 0), 0);
+  const sumaCons = (arr) => arr.reduce((s, x) => s + aUSDmov(x), 0);
   const fmtUSD = (n) => "USD " + Math.round(Number(n) || 0).toLocaleString("es-AR");
   if (cargando) return <div style={{ ...S.panel, color: COLORS.muted, fontSize: "13px" }}>Calculando posición...</div>;
-  const totalAportes = aportes.reduce((s, a) => s + aUSD(a.monto, a.moneda), 0);
-  const totalIngresos = ingresos.reduce((s, i) => s + aUSD(i.monto, i.moneda), 0);
-  const totalEgresos = egresos.reduce((s, e) => s + aUSD(e.monto, e.moneda), 0);
+  const sinTC = [...aportes, ...ingresos, ...egresos].filter((m) => m.moneda === "ARS" && !(Number(m.tc) > 0)).length;
+  const apoARS = sumaARS(aportes), apoUSD = sumaUSD(aportes);
+  const ingARS = sumaARS(ingresos), ingUSD = sumaUSD(ingresos);
+  const egrARS = sumaARS(egresos), egrUSD = sumaUSD(egresos);
+  const cajaARS = apoARS + ingARS - egrARS;
+  const cajaUSD = apoUSD + ingUSD - egrUSD;
+  const totalAportes = sumaCons(aportes);
+  const totalIngresos = sumaCons(ingresos);
+  const totalEgresos = sumaCons(egresos);
   const caja = totalAportes + totalIngresos - totalEgresos;
   const filas = aportantes.map((a) => {
-    const aportado = aportes.filter((x) => x.aportanteId === a.id).reduce((s, x) => s + aUSD(x.monto, x.moneda), 0);
+    const aportado = aportes.filter((x) => x.aportanteId === a.id).reduce((s, x) => s + aUSDmov(x), 0);
     const correspondia = totalAportes * (Number(a.participacion) || 0) / 100;
     const saldo = aportado - correspondia;
     return { ...a, aportado, correspondia, saldo };
   });
   const sumaPart = aportantes.reduce((s, a) => s + (Number(a.participacion) || 0), 0);
+  const colA = { minWidth: "115px", textAlign: "right" }, colU = { minWidth: "95px", textAlign: "right" };
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
-        <span style={{ fontSize: "11px", color: COLORS.muted }}>Consolidado en USD · TC $</span>
-        <input type="number" value={tc} onChange={(e) => setTc(e.target.value)} style={{ ...S.input, width: "90px", margin: 0, padding: "4px 8px", fontSize: "12px" }} />
+      <div style={{ ...S.panel, marginBottom: "12px" }}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "8px" }}>Caja del desarrollo — por moneda</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "14px", fontSize: "10px", color: COLORS.muted, marginBottom: "3px" }}>
+          <span style={colA}>PESOS</span><span style={colU}>DÓLARES</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+          <span style={{ color: COLORS.muted }}>Aportes de socios</span>
+          <span style={{ display: "flex", gap: "14px" }}><span style={{ ...colA, color: COLORS.text }}>{fmt(apoARS, "ARS")}</span><span style={{ ...colU, color: COLORS.text }}>{fmt(apoUSD, "USD")}</span></span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+          <span style={{ color: COLORS.muted }}>Ventas / ingresos</span>
+          <span style={{ display: "flex", gap: "14px" }}><span style={{ ...colA, color: COLORS.text }}>{fmt(ingARS, "ARS")}</span><span style={{ ...colU, color: COLORS.text }}>{fmt(ingUSD, "USD")}</span></span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "3px 0" }}>
+          <span style={{ color: COLORS.muted }}>Gastos</span>
+          <span style={{ display: "flex", gap: "14px" }}><span style={{ ...colA, color: COLORS.rojo }}>− {fmt(egrARS, "ARS")}</span><span style={{ ...colU, color: COLORS.rojo }}>− {fmt(egrUSD, "USD")}</span></span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: "4px", fontWeight: 800 }}>
+          <span style={{ color: COLORS.text }}>Caja disponible</span>
+          <span style={{ display: "flex", gap: "14px" }}>
+            <span style={{ ...colA, color: cajaARS >= 0 ? COLORS.verde : COLORS.rojo }}>{fmt(cajaARS, "ARS")}</span>
+            <span style={{ ...colU, color: cajaUSD >= 0 ? COLORS.verde : COLORS.rojo }}>{fmt(cajaUSD, "USD")}</span>
+          </span>
+        </div>
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Los pesos y los dólares se muestran por separado (no se suman entre sí). Esta caja se reparte entre los socios por su participación recién al cierre del desarrollo.</div>
       </div>
       <div style={{ ...S.panel, marginBottom: "12px" }}>
-        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "8px" }}>Caja del desarrollo</div>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "8px" }}>Consolidado en USD (al dólar de cada día)</div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "2px 0" }}>
           <span style={{ color: COLORS.muted }}>Aportes de socios</span><span style={{ color: COLORS.verde }}>{fmtUSD(totalAportes)}</span>
         </div>
@@ -1331,10 +1387,16 @@ function TabPosicion({ orgId, devId, fmt }) {
           <span style={{ color: COLORS.muted }}>Gastos</span><span style={{ color: COLORS.rojo }}>− {fmtUSD(totalEgresos)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "15px", padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: "4px" }}>
-          <span style={{ color: COLORS.text, fontWeight: 800 }}>Caja disponible</span>
+          <span style={{ color: COLORS.text, fontWeight: 800 }}>Caja consolidada</span>
           <span style={{ color: caja >= 0 ? COLORS.verde : COLORS.rojo, fontWeight: 800 }}>{fmtUSD(caja)}</span>
         </div>
-        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Esta caja se reparte entre los socios por su participación recién al cierre del desarrollo.</div>
+        <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Cada movimiento se convierte a dólares con el dólar del día en que se cargó. Mover el dólar no recalcula lo viejo.</div>
+        {sinTC > 0 && (
+          <div style={{ fontSize: "11px", color: COLORS.amarillo, marginTop: "8px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+            ⚠️ Hay {sinTC} movimiento(s) en pesos sin dólar del día. Se calculan con este dólar de referencia:
+            <input type="number" value={tc} onChange={(e) => setTc(e.target.value)} style={{ ...S.input, width: "80px", margin: 0, padding: "3px 6px", fontSize: "11px" }} />
+          </div>
+        )}
       </div>
       <div style={S.panel}>
         <div style={{ fontWeight: 700, fontSize: "13px", color: COLORS.gold, marginBottom: "4px" }}>Posición de cada socio</div>

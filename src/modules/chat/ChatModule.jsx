@@ -6,7 +6,7 @@ import { getObras } from "../../services/obrasRepo";
 import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
 import { getEstudios } from "../../services/mercadoRepo";
 import { getFactibilidades } from "../../services/factibilidadRepo";
-import { getContratos, getEgresos, getIngresos } from "../../services/financieroRepo";
+import { getContratos, getEgresos, getIngresos, getAportantes, getAportesCaja } from "../../services/financieroRepo";
 import { exportarPDF, esc } from "../../utils/exportPdf";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -188,7 +188,9 @@ export default function ChatModule({ initCmd }) {
             const contratos = await getContratos(orgId, d.id).catch(() => []);
             const egresos = await getEgresos(orgId, d.id).catch(() => []);
             const ingresos = await getIngresos(orgId, d.id).catch(() => []);
-            return { ...d, unidades, boletos, contratos, egresos, ingresos };
+            const aportantes = await getAportantes(orgId, d.id).catch(() => []);
+            const aportes = await getAportesCaja(orgId, d.id).catch(() => []);
+            return { ...d, unidades, boletos, contratos, egresos, ingresos, aportantes, aportes };
           })
         );
         if (!cancelled) setDesarrollosReales(conUnidades);
@@ -320,8 +322,21 @@ export default function ChatModule({ initCmd }) {
       itemsSinRendimientos: Array.isArray(o.items)
         ? o.items.filter((i) => i.rendimientos === null || i.rendimientos === undefined).length
         : 0,
-      certificaciones: Array.isArray(o.certificaciones) ? o.certificaciones.length : 0,
-      requerimientos: Array.isArray(o.reqs) ? o.reqs.length : 0,
+      certificaciones: Array.isArray(o.certificaciones) ? o.certificaciones.map((c) => ({
+        numero: c.numero, periodo: c.periodo, fecha: c.fecha, estado: c.estado,
+        totalPeriodo: c.totalPeriodo, totalAcumulado: c.totalAcumulado,
+      })) : [],
+      requerimientos: Array.isArray(o.reqs) ? o.reqs.map((r) => ({
+        numero: r.numero,
+        fecha: r.fecha,
+        jefeObra: r.jefeObra,
+        estado: r.estado,
+        observaciones: r.observaciones || "",
+        items: Array.isArray(r.items) ? r.items.map((it) => ({
+          codigo: it.codigo, desc: it.desc, um: it.um,
+          cantSolicitada: it.cantSolicitada, urgencia: it.urgencia,
+        })) : [],
+      })) : [],
     }));
     const resumenInmobiliaria = {
       desarrollos: desarrollosReales.map((d) => ({
@@ -356,7 +371,11 @@ export default function ChatModule({ initCmd }) {
         saludFinanciera: {
           contratos: (d.contratos || []).map((c) => ({
             nombre: c.nombre, rubro: c.rubro, montoTotal: c.montoTotal, moneda: c.moneda,
-            avancePct: c.avancePct, estado: c.estado,
+            avancePct: c.avancePct, estado: c.estado, fechaContrato: c.fechaContrato || null,
+            acopio: Array.isArray(c.itemsAcopio) && c.itemsAcopio.length ? c.itemsAcopio.map((it) => {
+              const entregado = (c.entregas || []).reduce((s, e) => s + (((e.lineas || []).find((l) => l.k === it.k) || {}).cant || 0), 0);
+              return { material: it.desc, um: it.um, acopiado: it.cant, entregado, falta: Math.max(0, Number(it.cant) - entregado) };
+            }) : null,
           })),
           egresosPorMoneda: ["ARS", "USD"].map((mon) => {
             const arr = (d.egresos || []).filter((e) => e.moneda === mon);
@@ -392,6 +411,15 @@ export default function ChatModule({ initCmd }) {
               return acc;
             }, {})
           ).map(([k, v]) => ({ categoria: k.split("|")[0], moneda: k.split("|")[1], total: v })),
+          financiamiento: {
+            socios: (d.aportantes || []).map((a) => ({ nombre: a.nombre, participacionPct: a.participacion })),
+            aportesPorSocio: (d.aportantes || []).map((a) => {
+              const suyos = (d.aportes || []).filter((x) => x.aportanteId === a.id);
+              const ars = suyos.filter((x) => x.moneda === "ARS").reduce((s, x) => s + (Number(x.monto) || 0), 0);
+              const usd = suyos.filter((x) => x.moneda === "USD").reduce((s, x) => s + (Number(x.monto) || 0), 0);
+              return { socio: a.nombre, participacionPct: a.participacion, aportadoARS: ars, aportadoUSD: usd };
+            }),
+          },
         },
       })),
       clientes: clientesReales.map((c) => ({

@@ -329,7 +329,8 @@ function TabEmpleados({ orgId, entidades, empleados, onChange }) {
 // ═══════════════════════ GASTOS ═══════════════════════
 
 const hoy = () => new Date().toISOString().slice(0, 10);
-const FORM_GAS_VACIO = { entidadId: "", categoria: "Alquiler", concepto: "", monto: "", moneda: "ARS", tc: "", fecha: hoy(), conFactura: true, entidadCobraId: "" };
+const MEDIOS_PAGO = ["", "Transferencia", "Efectivo", "Banco", "Cheque", "Otro"];
+const FORM_GAS_VACIO = { entidadId: "", categoria: "Alquiler", concepto: "", monto: "", moneda: "ARS", tc: "", fecha: hoy(), conFactura: true, entidadCobraId: "", fondeadoPor: "", medioPago: "" };
 
 function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
   const [form, setForm] = useState({ ...FORM_GAS_VACIO, entidadId: entidades[0]?.id || "" });
@@ -359,6 +360,8 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
         fecha: form.fecha,
         periodo: (form.fecha || "").slice(0, 7),
         conFactura: !!form.conFactura,
+        fondeadoPor: (form.fondeadoPor || "").trim(),
+        medioPago: form.medioPago || "",
         esHonorario: esHon,
         entidadCobraId: esHon ? form.entidadCobraId : "",
         empId: editandoId ? (gastos.find((g) => g.id === editandoId)?.empId || "") : "",
@@ -378,6 +381,7 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
       monto: String(g.monto), moneda: g.moneda || "ARS", tc: g.tc != null ? String(g.tc) : "",
       fecha: g.fecha || hoy(), conFactura: g.conFactura !== false,
       entidadCobraId: g.entidadCobraId || "",
+      fondeadoPor: g.fondeadoPor || "", medioPago: g.medioPago || "",
     });
   }
 
@@ -388,6 +392,7 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
   }
 
   const noEnt = entidades.length === 0;
+  const fondeadores = Array.from(new Set(gastos.map((g) => g.fondeadoPor).filter(Boolean))).sort();
   const lista = filtroEnt ? gastos.filter((g) => g.entidadId === filtroEnt || g.entidadCobraId === filtroEnt) : gastos;
 
   return (
@@ -445,6 +450,21 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
             <input type="checkbox" checked={form.conFactura} onChange={(e) => set("conFactura", e.target.checked)} /> Con factura
           </label>
         </div>
+        <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Quién puso la plata</label>
+            <input style={S.input} list="oficina-fondeadores" value={form.fondeadoPor} onChange={(e) => set("fondeadoPor", e.target.value)} placeholder="Ej: Martín, Eduardo, Árido…" />
+            <datalist id="oficina-fondeadores">
+              {fondeadores.map((f) => <option key={f} value={f} />)}
+            </datalist>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Medio de pago</label>
+            <select style={S.input} value={form.medioPago} onChange={(e) => set("medioPago", e.target.value)}>
+              {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{m || "— sin especificar —"}</option>)}
+            </select>
+          </div>
+        </div>
         <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
           <button style={S.btn("gold")} onClick={guardar} disabled={guardando || noEnt}>{guardando ? "..." : editandoId ? "Guardar" : "Agregar"}</button>
           {editandoId && <button style={S.btn("ghost")} onClick={() => { setForm({ ...FORM_GAS_VACIO, entidadId: form.entidadId }); setEditandoId(null); }}>Cancelar</button>}
@@ -475,6 +495,8 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
                   {g.esHonorario && g.entidadCobraId && <span> → cobra {nombreEnt(g.entidadCobraId)}</span>}
                   {" · "}{g.fecha}
                   {g.moneda === "ARS" && g.tc ? ` · dólar ${Number(g.tc).toLocaleString("es-AR")}` : ""}
+                  {g.fondeadoPor ? <span> · puso <b style={{ color: COLORS.text }}>{g.fondeadoPor}</b></span> : ""}
+                  {g.medioPago ? ` · ${g.medioPago}` : ""}
                 </div>
               </div>
               <div style={{ display: "flex", gap: "6px" }}>
@@ -520,6 +542,18 @@ function TabResumen({ entidades, gastos, nombreEnt }) {
   }
 
   const totalCons = base.reduce((s, g) => { const r = aUSD(g); if (!r.ok) sinTC = true; return s + (g.esHonorario ? 0 : r.usd); }, 0);
+  const porFondeador = (() => {
+    const map = {};
+    for (const g of base) {
+      const k = g.fondeadoPor || "(sin especificar)";
+      if (!map[k]) map[k] = { quien: k, ars: 0, usd: 0, cons: 0, n: 0 };
+      if (g.moneda === "ARS") map[k].ars += Number(g.monto) || 0; else map[k].usd += Number(g.monto) || 0;
+      const r = aUSD(g); if (!r.ok) sinTC = true; map[k].cons += r.usd;
+      map[k].n += 1;
+    }
+    return Object.values(map).sort((a, b) => b.cons - a.cons);
+  })();
+  const hayFond = porFondeador.some((f) => f.quien !== "(sin especificar)");
 
   return (
     <div>
@@ -559,6 +593,32 @@ function TabResumen({ entidades, gastos, nombreEnt }) {
           );
         })}
       </div>
+      {hayFond && (
+        <div style={{ ...S.panel, marginTop: "14px" }}>
+          <div style={{ fontWeight: 800, fontSize: "13px", color: COLORS.gold, marginBottom: "10px" }}>💵 Quién puso la plata</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              <th style={S.th}>Quién</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Pesos</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Dólares</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Consol. USD</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Movs.</th>
+            </tr></thead>
+            <tbody>
+              {porFondeador.map((f) => (
+                <tr key={f.quien}>
+                  <td style={S.td}>{f.quien}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{fmt(f.ars, "ARS")}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{fmt(f.usd, "USD")}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: COLORS.text }}>{fmt(f.cons, "USD")}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: COLORS.muted }}>{f.n}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>Cuánto puso cada persona/fondo en el período. Pesos y dólares no se suman; el consolidado usa el dólar de cada gasto.</div>
+        </div>
+      )}
       {sinTC && (
         <div style={{ ...S.panel, marginTop: "14px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: "12px", color: COLORS.amarillo }}>⚠️ Hay gastos en pesos sin dólar del día cargado. Para consolidarlos en USD poné un dólar de referencia:</span>

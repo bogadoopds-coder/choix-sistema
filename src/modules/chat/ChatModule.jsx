@@ -7,6 +7,7 @@ import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCob
 import { getEstudios } from "../../services/mercadoRepo";
 import { getFactibilidades } from "../../services/factibilidadRepo";
 import { getContratos, getEgresos, getIngresos, getAportantes, getAportesCaja } from "../../services/financieroRepo";
+import { getEntidades, getEmpleados, getGastos } from "../../services/oficinaRepo";
 import { exportarPDF, esc } from "../../utils/exportPdf";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -168,6 +169,7 @@ export default function ChatModule({ initCmd }) {
   const [cobranzasReales, setCobranzasReales] = useState([]);
   const [estudiosReales, setEstudiosReales] = useState([]);
   const [factibilidadesReales, setFactibilidadesReales] = useState([]);
+  const [oficinaReales, setOficinaReales] = useState({ entidades: [], empleados: [], gastos: [] });
 
   useEffect(() => {
     let cancelled = false;
@@ -210,6 +212,12 @@ export default function ChatModule({ initCmd }) {
       try {
         const facs = await getFactibilidades(orgId);
         if (!cancelled) setFactibilidadesReales(Array.isArray(facs) ? facs : []);
+      } catch {}
+      try {
+        const [entidades, empleados, gastos] = await Promise.all([
+          getEntidades(orgId), getEmpleados(orgId), getGastos(orgId),
+        ]);
+        if (!cancelled) setOficinaReales({ entidades, empleados, gastos });
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -462,6 +470,40 @@ export default function ChatModule({ initCmd }) {
         faltantes: f.resultado?.faltantes || [],
       })),
     };
+    const nombreEntOf = (id) => (oficinaReales.entidades.find((e) => e.id === id)?.nombre) || "(entidad)";
+    const aUSDof = (g) => {
+      if (g.moneda === "USD") return Number(g.monto) || 0;
+      const tc = Number(g.tc) || 0;
+      return tc > 0 ? (Number(g.monto) || 0) / tc : 0;
+    };
+    const resumenOficina = {
+      entidades: oficinaReales.entidades.map((e) => ({ id: e.id, nombre: e.nombre, notas: e.notas || "" })),
+      empleados: oficinaReales.empleados.map((emp) => ({
+        nombre: emp.nombre, rol: emp.rolDesc || "", sueldo: emp.sueldo, moneda: emp.moneda,
+        activo: emp.activo !== false,
+        reparto: (emp.repartos || []).map((r) => ({ entidad: nombreEntOf(r.entId), pct: r.pct })),
+      })),
+      porEntidad: oficinaReales.entidades.map((e) => {
+        const egresos = oficinaReales.gastos.filter((g) => g.entidadId === e.id);
+        const honCobra = oficinaReales.gastos.filter((g) => g.esHonorario && g.entidadCobraId === e.id);
+        const sumMon = (arr, mon) => arr.filter((g) => g.moneda === mon).reduce((s, g) => s + (Number(g.monto) || 0), 0);
+        const sumUSD = (arr) => arr.reduce((s, g) => s + aUSDof(g), 0);
+        const faltaTC = egresos.some((g) => g.moneda === "ARS" && !(Number(g.tc) > 0));
+        return {
+          entidad: e.nombre,
+          gastosQuePaga: { ARS: sumMon(egresos, "ARS"), USD: sumMon(egresos, "USD"), consolidadoUSD: Math.round(sumUSD(egresos)) },
+          honorariosQueCobra: { ARS: sumMon(honCobra, "ARS"), USD: sumMon(honCobra, "USD"), consolidadoUSD: Math.round(sumUSD(honCobra)) },
+          consolidadoIncompleto: faltaTC,
+          gastosPorCategoria: Object.entries(
+            egresos.reduce((acc, g) => { const k = g.categoria + "|" + g.moneda; acc[k] = (acc[k] || 0) + (Number(g.monto) || 0); return acc; }, {})
+          ).map(([k, v]) => ({ categoria: k.split("|")[0], moneda: k.split("|")[1], total: v })),
+        };
+      }),
+      honorariosInternos: oficinaReales.gastos.filter((g) => g.esHonorario).map((g) => ({
+        paga: nombreEntOf(g.entidadId), cobra: nombreEntOf(g.entidadCobraId),
+        monto: g.monto, moneda: g.moneda, fecha: g.fecha, concepto: g.concepto || "",
+      })),
+    };
     return SYSTEM_PROMPT + `
 
 DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMPRE estos datos, no inventes obras ni números que no estén acá):
@@ -481,6 +523,10 @@ Si el usuario pregunta por desarrollos, unidades (disponibilidad, precios de lis
 Los estudiosMercado son busquedas de precios de venta de la zona hechas por el modulo Mercado (portales inmobiliarios, con fecha): usalos para responder sobre valores de m2 de una zona, siempre aclarando que son precios de publicacion (no de cierre) y la fecha del estudio. Las factibilidades son analisis de viabilidad de terrenos hechos por el modulo Factibilidad leyendo el codigo de planeamiento: usalas para responder sobre indicadores urbanisticos (FOT, FOS, alturas) y m2 edificables estimados de los terrenos analizados, aclarando que son estimaciones indicativas que no reemplazan la prefactibilidad municipal ni al arquitecto. Si preguntan por una zona o terreno SIN estudio previo, indicá que pueden generarlo en los modulos Mercado o Factibilidad. PROHIBIDO dar valores de mercado, indicadores urbanisticos, FOT/FOS, alturas o nomenclatura de zonas desde tu conocimiento general, ni siquiera como "referencia orientativa": la normativa urbana cambia (codigos se derogan y reemplazan) y un valor desactualizado puede inducir una mala decision de inversion. Ante zona sin datos: decir que no hay datos cargados y derivar al modulo, nada mas.
 
 saludFinanciera es el arqueo real de cada desarrollo: contratos con contratistas (monto y avance), egresos e ingresos separados por moneda (ARS y USD) y por estado fiscal (conFactura/sinFactura/pendiente), lo pagado y lo que resta a cada contratista, y egresos por categoria. Usalos para responder sobre la caja del desarrollo, cuanto se debe a un contratista, cuanto esta documentado con factura y en que se gasta la plata. Los montos ARS y USD NO se suman entre si: si el usuario quiere un consolidado en una sola moneda, pedile el tipo de cambio. El estado fiscal sinFactura significa pagos sin comprobante fiscal (efectivo, informal), es un dato de control interno del desarrollador — presentalo con naturalidad como parte del arqueo, no lo juzgues ni lo señales como irregular. Si un desarrollo no tiene datos financieros cargados, deci que todavia no se cargo el arqueo de ese desarrollo.
+
+DATOS REALES DE OFICINA (estructura del estudio — gastos de las entidades del grupo, a nivel organización, separado de la caja de cada obra/desarrollo; misma regla: fuente de verdad, no inventes):
+${JSON.stringify(resumenOficina, null, 2)}
+El modulo Oficina lleva los gastos de estructura de las entidades del grupo (ej: Pensamiento Visual S.A. y Punto 2). porEntidad trae, por cada entidad: gastosQuePaga y honorariosQueCobra, con totales en ARS y USD POR SEPARADO y un consolidadoUSD calculado con el dolar del dia de cada gasto. Los montos ARS y USD NO se suman entre si; el consolidadoUSD ya esta convertido a dolares. Si consolidadoIncompleto es true, hay gastos en pesos sin dolar del dia cargado y ese consolidado quedo corto: aclaralo al responder. gastosPorCategoria desglosa en que gasta cada entidad (Sueldos, Alquiler, etc.), por moneda. honorariosInternos es plata que una entidad del grupo le paga a otra (ej: Pensamiento Visual le paga honorarios a Punto 2): es un movimiento INTERNO del grupo — para una entidad sola es egreso de una e ingreso de la otra, pero mirando el grupo consolidado se netea, no es ingreso externo. empleados es la plantilla de sueldos con su reparto por entidad (un empleado puede estar 50% en una y 50% en otra). Si no hay entidades ni gastos cargados, deci que todavia no se cargo nada en el modulo Oficina. La IA no decide montos ni estados contables: informa y analiza sobre estos datos, no los modifica.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

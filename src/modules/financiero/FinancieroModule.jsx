@@ -297,6 +297,10 @@ function SeguimientoAcopio({ contrato, orgId, devId, onSaved }) {
   const [cant, setCant] = useState({});
   const [guardando, setGuardando] = useState(false);
   const [errorEntrega, setErrorEntrega] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editFecha, setEditFecha] = useState("");
+  const [editRemito, setEditRemito] = useState("");
+  const [editCant, setEditCant] = useState({});
   const items = contrato.itemsAcopio || [];
   const entregas = contrato.entregas || [];
   const entregadoDe = (k) => entregas.reduce((s, e) => s + (((e.lineas || []).find((l) => l.k === k) || {}).cant || 0), 0);
@@ -312,6 +316,38 @@ function SeguimientoAcopio({ contrato, orgId, devId, onSaved }) {
       setReg(false); setRemito(""); setCant({});
       await onSaved();
     } catch (e) { setErrorEntrega("No se pudo guardar la entrega."); }
+    setGuardando(false);
+  }
+  function empezarEdicion(e) {
+    setEditId(e.id);
+    setEditFecha(e.fecha || new Date().toISOString().slice(0, 10));
+    setEditRemito(e.remito || "");
+    const cc = {}; (e.lineas || []).forEach((l) => { cc[l.k] = String(l.cant); });
+    setEditCant(cc);
+    setErrorEntrega("");
+    setReg(false);
+  }
+  async function guardarEdicion() {
+    const lineas = items.map((it) => ({ k: it.k, cant: Number(editCant[it.k]) || 0 })).filter((l) => l.cant > 0);
+    if (lineas.length === 0) { setErrorEntrega("La entrega necesita al menos un material con cantidad."); return; }
+    setErrorEntrega("");
+    setGuardando(true);
+    try {
+      const nuevas = entregas.map((e) => e.id === editId ? { ...e, fecha: editFecha, remito: editRemito.trim(), lineas } : e);
+      await saveContrato(orgId, devId, { id: contrato.id, entregas: nuevas });
+      setEditId(null);
+      await onSaved();
+    } catch (e) { setErrorEntrega("No se pudo editar la entrega."); }
+    setGuardando(false);
+  }
+  async function borrarEntrega(id) {
+    if (!window.confirm("¿Borrar esta entrega? Se recalcula lo entregado.")) return;
+    setGuardando(true);
+    try {
+      await saveContrato(orgId, devId, { id: contrato.id, entregas: entregas.filter((e) => e.id !== id) });
+      if (editId === id) setEditId(null);
+      await onSaved();
+    } catch (e) { setErrorEntrega("No se pudo borrar la entrega."); }
     setGuardando(false);
   }
   const todoEntregado = items.length > 0 && items.every((it) => entregadoDe(it.k) >= Number(it.cant));
@@ -351,11 +387,44 @@ function SeguimientoAcopio({ contrato, orgId, devId, onSaved }) {
             <div style={{ marginTop: "8px", borderTop: `1px solid ${COLORS.border}`, paddingTop: "6px" }}>
               <div style={{ fontSize: "10.5px", fontWeight: 700, color: COLORS.gold, marginBottom: "4px" }}>Entregas registradas</div>
               {entregas.map((e) => (
-                <div key={e.id} style={{ fontSize: "10.5px", color: COLORS.muted, marginBottom: "3px" }}>
-                  {e.fecha}{e.remito ? " · Remito " + e.remito : ""} · {(e.lineas || []).map((l) => {
-                    const it = items.find((x) => x.k === l.k);
-                    return (it ? it.desc : l.k) + " " + nf(l.cant) + (it ? " " + it.um : "");
-                  }).join(" · ")}
+                <div key={e.id} style={{ marginBottom: "5px", borderBottom: `1px solid ${COLORS.border}`, paddingBottom: "4px" }}>
+                  {editId === e.id ? (
+                    <div>
+                      <div style={{ display: "flex", gap: "6px", marginBottom: "6px", flexWrap: "wrap" }}>
+                        <div>
+                          <label style={S.label}>Fecha</label>
+                          <input type="date" value={editFecha} onChange={(ev) => setEditFecha(ev.target.value)} style={{ ...S.input, margin: 0, width: "140px" }} />
+                        </div>
+                        <div>
+                          <label style={S.label}>N° de remito</label>
+                          <input value={editRemito} onChange={(ev) => setEditRemito(ev.target.value)} placeholder="opcional" style={{ ...S.input, margin: 0, width: "120px" }} />
+                        </div>
+                      </div>
+                      {items.map((it) => (
+                        <div key={it.k} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px", fontSize: "11px" }}>
+                          <span style={{ flex: 1, color: COLORS.text }}>{it.desc}</span>
+                          <input type="number" min="0" value={editCant[it.k] || ""} onChange={(ev) => setEditCant((c) => ({ ...c, [it.k]: ev.target.value }))} placeholder="0"
+                            style={{ ...S.input, width: "80px", margin: 0, padding: "3px 6px", textAlign: "center" }} />
+                        </div>
+                      ))}
+                      {errorEntrega && <div style={{ fontSize: "11px", color: COLORS.rojo, marginTop: "4px" }}>{errorEntrega}</div>}
+                      <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+                        <button type="button" onClick={guardarEdicion} disabled={guardando} style={{ ...S.btn(), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>{guardando ? "Guardando…" : "Guardar cambios"}</button>
+                        <button type="button" onClick={() => { setEditId(null); setErrorEntrega(""); }} style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "11px", padding: "4px 10px" }}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <div style={{ flex: 1, fontSize: "10.5px", color: COLORS.muted }}>
+                        {e.fecha}{e.remito ? " · Remito " + e.remito : ""} · {(e.lineas || []).map((l) => {
+                          const it = items.find((x) => x.k === l.k);
+                          return (it ? it.desc : l.k) + " " + nf(l.cant) + (it ? " " + it.um : "");
+                        }).join(" · ")}
+                      </div>
+                      <button type="button" onClick={() => empezarEdicion(e)} style={{ ...S.btn("blue", true), cursor: "pointer", fontSize: "10px", padding: "2px 7px" }}>Editar</button>
+                      <button type="button" onClick={() => borrarEntrega(e.id)} style={{ ...S.btn("red", true), cursor: "pointer", fontSize: "10px", padding: "2px 7px" }}>✕</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

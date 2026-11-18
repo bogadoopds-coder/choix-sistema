@@ -6,6 +6,8 @@ import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra, crearOrdenCompra } from "../../services/obrasRepo";
+import { getDesarrollos } from "../../services/desarrollosRepo";
+import { getContratos } from "../../services/financieroRepo";
 
 
 const URGENCIAS = ["normal", "urgente", "crítico"];
@@ -918,6 +920,114 @@ function SeccionProveedores({ orgId }) {
 }
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────
+// ─── Acopio por proveedor (solo lectura) ──────────────────────────────────────
+// Lee los contratos con acopio de TODOS los desarrollos (Salud Financiera) y los
+// agrupa por el nombre del proveedor (el nombre del contrato). Cruce por texto.
+function SeccionAcopio({ orgId }) {
+  const [loading, setLoading] = useState(true);
+  const [grupos, setGrupos] = useState([]);
+  const [q, setQ] = useState("");
+  const [soloFalta, setSoloFalta] = useState(false);
+  useEffect(() => {
+    if (!orgId) return;
+    let cancel = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const devs = await getDesarrollos(orgId);
+        const porProv = {};
+        for (const d of devs) {
+          let contratos = [];
+          try { contratos = await getContratos(orgId, d.id); } catch {}
+          for (const c of contratos) {
+            const items = c.itemsAcopio || [];
+            if (!items.length) continue;
+            const entregas = c.entregas || [];
+            const entregadoDe = (k) => entregas.reduce((s, e) => s + (((e.lineas || []).find((l) => l.k === k) || {}).cant || 0), 0);
+            const prov = (c.nombre || "(sin proveedor)").trim() || "(sin proveedor)";
+            if (!porProv[prov]) porProv[prov] = { proveedor: prov, items: [] };
+            for (const it of items) {
+              const acop = Number(it.cant) || 0;
+              const entr = entregadoDe(it.k);
+              porProv[prov].items.push({
+                desc: it.desc || it.codigo || "Material", um: it.um || "",
+                acopiado: acop, entregado: entr, falta: Math.max(0, acop - entr),
+                desarrollo: d.nombre || "", rubro: c.rubro || "",
+              });
+            }
+          }
+        }
+        if (!cancel) setGrupos(Object.values(porProv).sort((a, b) => a.proveedor.localeCompare(b.proveedor)));
+      } catch (e) { console.error("Acopio: error cargando", e); }
+      if (!cancel) setLoading(false);
+    })();
+    return () => { cancel = true; };
+  }, [orgId]);
+  const n = (x) => Number(x || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 });
+  const ql = q.trim().toLowerCase();
+  const gruposFiltrados = grupos
+    .filter((g) => !ql || g.proveedor.toLowerCase().includes(ql) || g.items.some((it) => (it.desc || "").toLowerCase().includes(ql)))
+    .map((g) => ({ ...g, items: soloFalta ? g.items.filter((it) => it.falta > 0) : g.items }))
+    .filter((g) => g.items.length > 0);
+  return (
+    <div>
+      <div style={{ fontWeight: 700, color: COLORS.gold, marginBottom: "6px", fontSize: "14px" }}>📦 ACOPIO POR PROVEEDOR</div>
+      <div style={{ color: COLORS.muted, fontSize: "12px", marginBottom: "14px" }}>
+        Materiales en acopio cargados en Salud Financiera (contratos de los desarrollos), agrupados por proveedor. Solo lectura — se cruza por el nombre del proveedor.
+      </div>
+      <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "14px", flexWrap: "wrap" }}>
+        <input style={{ ...S.input, maxWidth: "280px" }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar proveedor o material..." />
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", cursor: "pointer", color: COLORS.text }}>
+          <input type="checkbox" checked={soloFalta} onChange={(e) => setSoloFalta(e.target.checked)} /> Solo lo que falta entregar
+        </label>
+      </div>
+      {loading ? (
+        <div style={{ color: COLORS.muted, fontSize: "12px" }}>Cargando acopio...</div>
+      ) : gruposFiltrados.length === 0 ? (
+        <div style={{ ...S.panel, textAlign: "center", color: COLORS.muted, padding: "30px", fontSize: "12px" }}>
+          No hay materiales en acopio{ql || soloFalta ? " para ese filtro" : ""}. El acopio se carga en Salud Financiera, dentro de cada contrato del desarrollo.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {gruposFiltrados.map((g) => {
+            const totFalta = g.items.reduce((s, it) => s + it.falta, 0);
+            return (
+              <div key={g.proveedor} style={S.panel}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "6px" }}>
+                  <span style={{ fontWeight: 800, fontSize: "14px", color: COLORS.text }}>🏪 {g.proveedor}</span>
+                  <span style={{ fontSize: "11px", color: totFalta > 0 ? COLORS.amarillo : COLORS.verde }}>
+                    {g.items.length} material{g.items.length === 1 ? "" : "es"}{totFalta > 0 ? ` · falta entregar` : " · todo entregado"}
+                  </span>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <th style={S.th}>Material</th>
+                    <th style={S.th}>Desarrollo</th>
+                    <th style={{ ...S.th, textAlign: "right" }}>Acopiado</th>
+                    <th style={{ ...S.th, textAlign: "right" }}>Entregado</th>
+                    <th style={{ ...S.th, textAlign: "right" }}>Falta</th>
+                  </tr></thead>
+                  <tbody>
+                    {g.items.map((it, i) => (
+                      <tr key={i}>
+                        <td style={S.td}>{it.desc}{it.um ? <span style={{ color: COLORS.muted }}> ({it.um})</span> : ""}</td>
+                        <td style={{ ...S.td, color: COLORS.muted }}>{it.desarrollo}</td>
+                        <td style={{ ...S.td, textAlign: "right" }}>{n(it.acopiado)}</td>
+                        <td style={{ ...S.td, textAlign: "right", color: COLORS.muted }}>{n(it.entregado)}</td>
+                        <td style={{ ...S.td, textAlign: "right", color: it.falta > 0 ? COLORS.amarillo : COLORS.verde, fontWeight: 700 }}>{n(it.falta)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ComprasModule({ BASE = [] }) {
   const { orgId } = useAuth();
   const [proyectos, setProyectos] = useState([]);
@@ -1125,6 +1235,12 @@ export default function ComprasModule({ BASE = [] }) {
           >
             🏪 Proveedores
           </button>
+          <button
+            onClick={() => setSeccion("acopio")}
+            style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: seccion === "acopio" ? 700 : 400, color: seccion === "acopio" ? COLORS.gold : COLORS.muted, padding: "4px 8px" }}
+          >
+            📦 Acopio por proveedor
+          </button>
         </div>
         {seccion === "compras" && (
           <>
@@ -1173,6 +1289,7 @@ export default function ComprasModule({ BASE = [] }) {
           </>
         )}
         {seccion === "proveedores" && <SeccionProveedores orgId={orgId} />}
+        {seccion === "acopio" && <SeccionAcopio orgId={orgId} />}
       </div>
     </div>
   );

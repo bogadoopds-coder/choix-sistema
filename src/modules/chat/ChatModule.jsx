@@ -471,10 +471,18 @@ export default function ChatModule({ initCmd }) {
       })),
     };
     const nombreEntOf = (id) => (oficinaReales.entidades.find((e) => e.id === id)?.nombre) || "(entidad)";
+    const lineasDeG = (g) => (Array.isArray(g.reparto) && g.reparto.length)
+      ? g.reparto.map((r) => ({ entidadId: r.entidadId || "", monto: Number(r.monto) || 0, fondeadoPor: r.fondeadoPor || "", medioPago: r.medioPago || "" }))
+      : [{ entidadId: g.entidadId || "", monto: Number(g.monto) || 0, fondeadoPor: g.fondeadoPor || "", medioPago: g.medioPago || "" }];
     const aUSDof = (g) => {
       if (g.moneda === "USD") return Number(g.monto) || 0;
       const tc = Number(g.tc) || 0;
       return tc > 0 ? (Number(g.monto) || 0) / tc : 0;
+    };
+    const lineaUSDof = (l, g) => {
+      if (g.moneda === "USD") return l.monto;
+      const tc = Number(g.tc) || 0;
+      return tc > 0 ? l.monto / tc : 0;
     };
     const resumenOficina = {
       entidades: oficinaReales.entidades.map((e) => ({ id: e.id, nombre: e.nombre, notas: e.notas || "" })),
@@ -484,23 +492,42 @@ export default function ChatModule({ initCmd }) {
         reparto: (emp.repartos || []).map((r) => ({ entidad: nombreEntOf(r.entId), pct: r.pct })),
       })),
       porEntidad: oficinaReales.entidades.map((e) => {
-        const egresos = oficinaReales.gastos.filter((g) => g.entidadId === e.id);
+        let ars = 0, usd = 0, cons = 0, faltaTC = false;
+        const catMap = {};
+        for (const g of oficinaReales.gastos) {
+          for (const l of lineasDeG(g)) {
+            if (l.entidadId !== e.id) continue;
+            if (g.moneda === "ARS") { ars += l.monto; if (!(Number(g.tc) > 0)) faltaTC = true; } else usd += l.monto;
+            cons += lineaUSDof(l, g);
+            const k = g.categoria + "|" + g.moneda;
+            catMap[k] = (catMap[k] || 0) + l.monto;
+          }
+        }
         const honCobra = oficinaReales.gastos.filter((g) => g.esHonorario && g.entidadCobraId === e.id);
         const sumMon = (arr, mon) => arr.filter((g) => g.moneda === mon).reduce((s, g) => s + (Number(g.monto) || 0), 0);
         const sumUSD = (arr) => arr.reduce((s, g) => s + aUSDof(g), 0);
-        const faltaTC = egresos.some((g) => g.moneda === "ARS" && !(Number(g.tc) > 0));
         return {
           entidad: e.nombre,
-          gastosQuePaga: { ARS: sumMon(egresos, "ARS"), USD: sumMon(egresos, "USD"), consolidadoUSD: Math.round(sumUSD(egresos)) },
+          gastosQuePaga: { ARS: Math.round(ars), USD: Math.round(usd), consolidadoUSD: Math.round(cons) },
           honorariosQueCobra: { ARS: sumMon(honCobra, "ARS"), USD: sumMon(honCobra, "USD"), consolidadoUSD: Math.round(sumUSD(honCobra)) },
           consolidadoIncompleto: faltaTC,
-          gastosPorCategoria: Object.entries(
-            egresos.reduce((acc, g) => { const k = g.categoria + "|" + g.moneda; acc[k] = (acc[k] || 0) + (Number(g.monto) || 0); return acc; }, {})
-          ).map(([k, v]) => ({ categoria: k.split("|")[0], moneda: k.split("|")[1], total: v })),
+          gastosPorCategoria: Object.entries(catMap).map(([k, v]) => ({ categoria: k.split("|")[0], moneda: k.split("|")[1], total: Math.round(v) })),
         };
       }),
+      quienPusoLaPlata: (() => {
+        const map = {};
+        for (const g of oficinaReales.gastos) {
+          for (const l of lineasDeG(g)) {
+            const k = l.fondeadoPor || "(sin especificar)";
+            if (!map[k]) map[k] = { quien: k, ARS: 0, USD: 0, consolidadoUSD: 0 };
+            if (g.moneda === "ARS") map[k].ARS += l.monto; else map[k].USD += l.monto;
+            map[k].consolidadoUSD += lineaUSDof(l, g);
+          }
+        }
+        return Object.values(map).map((x) => ({ quien: x.quien, ARS: Math.round(x.ARS), USD: Math.round(x.USD), consolidadoUSD: Math.round(x.consolidadoUSD) }));
+      })(),
       honorariosInternos: oficinaReales.gastos.filter((g) => g.esHonorario).map((g) => ({
-        paga: nombreEntOf(g.entidadId), cobra: nombreEntOf(g.entidadCobraId),
+        paga: nombreEntOf(lineasDeG(g)[0].entidadId), cobra: nombreEntOf(g.entidadCobraId),
         monto: g.monto, moneda: g.moneda, fecha: g.fecha, concepto: g.concepto || "",
       })),
     };
@@ -526,7 +553,7 @@ saludFinanciera es el arqueo real de cada desarrollo: contratos con contratistas
 
 DATOS REALES DE OFICINA (estructura del estudio — gastos de las entidades del grupo, a nivel organización, separado de la caja de cada obra/desarrollo; misma regla: fuente de verdad, no inventes):
 ${JSON.stringify(resumenOficina, null, 2)}
-El modulo Oficina lleva los gastos de estructura de las entidades del grupo (ej: Pensamiento Visual S.A. y Punto 2). porEntidad trae, por cada entidad: gastosQuePaga y honorariosQueCobra, con totales en ARS y USD POR SEPARADO y un consolidadoUSD calculado con el dolar del dia de cada gasto. Los montos ARS y USD NO se suman entre si; el consolidadoUSD ya esta convertido a dolares. Si consolidadoIncompleto es true, hay gastos en pesos sin dolar del dia cargado y ese consolidado quedo corto: aclaralo al responder. gastosPorCategoria desglosa en que gasta cada entidad (Sueldos, Alquiler, etc.), por moneda. honorariosInternos es plata que una entidad del grupo le paga a otra (ej: Pensamiento Visual le paga honorarios a Punto 2): es un movimiento INTERNO del grupo — para una entidad sola es egreso de una e ingreso de la otra, pero mirando el grupo consolidado se netea, no es ingreso externo. empleados es la plantilla de sueldos con su reparto por entidad (un empleado puede estar 50% en una y 50% en otra). Si no hay entidades ni gastos cargados, deci que todavia no se cargo nada en el modulo Oficina. La IA no decide montos ni estados contables: informa y analiza sobre estos datos, no los modifica.
+El modulo Oficina lleva los gastos de estructura de las entidades del grupo (ej: Pensamiento Visual S.A. y Punto 2). porEntidad trae, por cada entidad: gastosQuePaga y honorariosQueCobra, con totales en ARS y USD POR SEPARADO y un consolidadoUSD calculado con el dolar del dia de cada gasto. Los montos ARS y USD NO se suman entre si; el consolidadoUSD ya esta convertido a dolares. Si consolidadoIncompleto es true, hay gastos en pesos sin dolar del dia cargado y ese consolidado quedo corto: aclaralo al responder. gastosPorCategoria desglosa en que gasta cada entidad (Sueldos, Alquiler, etc.), por moneda. honorariosInternos es plata que una entidad del grupo le paga a otra (ej: Pensamiento Visual le paga honorarios a Punto 2): es un movimiento INTERNO del grupo — para una entidad sola es egreso de una e ingreso de la otra, pero mirando el grupo consolidado se netea, no es ingreso externo. empleados es la plantilla de sueldos con su reparto por entidad (un empleado puede estar 50% en una y 50% en otra). Un mismo gasto puede estar REPARTIDO entre varias entidades (ej: alquiler 800 = 200 a una + 600 a otra); porEntidad ya cuenta solo la parte que le toca a cada una. quienPusoLaPlata dice cuanto aporto cada persona o fondo (ej: Martin, Eduardo, Arido), con ARS y USD por separado y consolidadoUSD; usalo para responder quien puso la plata o cuanto puso alguien. Si no hay entidades ni gastos cargados, deci que todavia no se cargo nada en el modulo Oficina. La IA no decide montos ni estados contables: informa y analiza sobre estos datos, no los modifica.
 
 ACCIONES DISPONIBLES (especialistas):
 Tenés especialistas a los que podés derivar trabajo. Si el pedido del usuario corresponde a uno, respondé ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):

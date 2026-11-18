@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { sendChat } from "../../services/ai/chatClient";
 import { COLORS, FONTS } from "../../styles/theme";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras } from "../../services/obrasRepo";
+import { getObras, getOrdenesCompra } from "../../services/obrasRepo";
 import { getDesarrollos, getUnidades, getClientes, getBoletos, getCuotas, getCobranzas } from "../../services/desarrollosRepo";
 import { getEstudios } from "../../services/mercadoRepo";
 import { getFactibilidades } from "../../services/factibilidadRepo";
@@ -158,8 +158,13 @@ export default function ChatModule({ initCmd }) {
   useEffect(() => {
     let cancelled = false;
     if (!orgId) return;
-    getObras(orgId).then((obras) => {
-      if (!cancelled) setObrasReales(Array.isArray(obras) ? obras : []);
+    getObras(orgId).then(async (obras) => {
+      const lista = Array.isArray(obras) ? obras : [];
+      const conOC = await Promise.all(lista.map(async (o) => {
+        const ordenesCompra = await getOrdenesCompra(orgId, o.id).catch(() => []);
+        return { ...o, ordenesCompra };
+      }));
+      if (!cancelled) setObrasReales(conOC);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [orgId]);
@@ -343,7 +348,18 @@ export default function ChatModule({ initCmd }) {
         items: Array.isArray(r.items) ? r.items.map((it) => ({
           codigo: it.codigo, desc: it.desc, um: it.um,
           cantSolicitada: it.cantSolicitada, urgencia: it.urgencia,
+          despachado: !!it.ocCodigo, orden: it.ocCodigo || null,
         })) : [],
+        cotizaciones: Array.isArray(r.cotizaciones) ? r.cotizaciones.map((c) => ({
+          proveedor: c.proveedorNombre || "", monto: c.monto, moneda: c.moneda,
+          elegida: !!c.elegida, notas: c.notas || "", fecha: c.fecha,
+        })) : [],
+      })) : [],
+      ordenesCompra: Array.isArray(o.ordenesCompra) ? o.ordenesCompra.map((oc) => ({
+        id: oc.id, proveedor: oc.proveedorNombre || "", fecha: oc.fecha,
+        estado: oc.estado || "abierta", fechaRecepcion: oc.fechaRecepcion || "",
+        desdeReq: oc.reqNumero ?? null,
+        items: Array.isArray(oc.items) ? oc.items.map((it) => ({ codigo: it.codigo, desc: it.desc, cant: it.cantSolicitada, um: it.um })) : [],
       })) : [],
     }));
     const resumenInmobiliaria = {
@@ -537,6 +553,7 @@ DATOS REALES DE LAS OBRAS DE ESTA ORGANIZACIÓN (fuente de verdad — usá SIEMP
 ${JSON.stringify(resumen, null, 2)}
 
 Si el usuario pregunta por sus obras, ítems, certificaciones o requerimientos, respondé en base a estos datos reales. Si un dato no está acá, decí que no lo tenés a mano en este resumen — no lo inventes.
+FLUJO DE COMPRAS (por obra): el circuito es requerimiento → cotización → orden de compra → recepción. En cada requerimiento, items[].despachado indica si ese ítem ya se convirtió en orden de compra (orden = código de la OC). cotizaciones son los presupuestos pedidos a proveedores: cada una tiene proveedor, monto, moneda y elegida (la que se eligió para comprar); compará montos para decir cuál conviene. ordenesCompra (a nivel obra) son las órdenes generadas: estado "abierta" = emitida sin recibir, "recibida" = ya llegó (con fechaRecepcion); desdeReq indica de qué requerimiento salió. Usá esto para responder qué falta comprar (ítems no despachados), qué cotización conviene, qué órdenes están abiertas sin recibir y qué ya se recibió. Para el ACOPIO POR PROVEEDOR usá saludFinanciera.contratos de cada desarrollo: el nombre del contrato es el proveedor y acopio lista material/acopiado/entregado/falta; agrupá por nombre para decir qué hay acopiado de un proveedor y cuánto falta que entreguen.
 
 montoPresupuesto y montoConsumido son la suma de cantidad x precio unitario de los items cargados de cada obra, expresados EN PESOS ARGENTINOS segun los precios vigentes en el sistema. Si el usuario pide valores en dolares o un analisis de costos de inversion, pedile el tipo de cambio a aplicar — nunca lo inventes. Para costo por m2, dividí montoPresupuesto por los m2 que el usuario indique o por la superficie de las unidades del desarrollo vinculado (obraId) si estan cargadas.
 

@@ -5,7 +5,7 @@ import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
-import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra, crearOrdenCompra } from "../../services/obrasRepo";
+import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra, crearOrdenCompra, actualizarOrdenCompra } from "../../services/obrasRepo";
 import { getDesarrollos } from "../../services/desarrollosRepo";
 import { getContratos } from "../../services/financieroRepo";
 
@@ -288,9 +288,87 @@ function ListaObras({ proyectos, onSelect }) {
   );
 }
 
-function BloqueDespacho({ req, proveedores, onCrearOrden }) {
-  const [seleccion, setSeleccion] = useState(new Set());
+// ─── Cotizaciones de un requerimiento (pedir presupuesto / comparar) ──────────
+function CotizacionesBloque({ req, proveedores, onSaveReq }) {
+  const cotizaciones = Array.isArray(req.cotizaciones) ? req.cotizaciones : [];
   const [provId, setProvId] = useState("");
+  const [monto, setMonto] = useState("");
+  const [moneda, setMoneda] = useState("ARS");
+  const [notas, setNotas] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const fmtM = (n, m) => (m === "USD" ? "USD " : "$ ") + Number(n || 0).toLocaleString("es-AR", { maximumFractionDigits: 0 });
+  async function agregar() {
+    if (!provId || !(Number(monto) > 0)) return;
+    const prov = proveedores.find((p) => p.id === provId);
+    const nueva = {
+      id: "cot" + Math.random().toString(36).slice(2, 8),
+      proveedorId: provId, proveedorNombre: prov?.nombre || "",
+      monto: Number(monto), moneda, notas: notas.trim(),
+      fecha: new Date().toISOString().slice(0, 10), elegida: false,
+    };
+    setGuardando(true);
+    try { await onSaveReq({ ...req, cotizaciones: [...cotizaciones, nueva] }); setProvId(""); setMonto(""); setNotas(""); }
+    catch (e) { console.error("Cotización: error guardando", e); }
+    setGuardando(false);
+  }
+  async function elegir(id) {
+    try { await onSaveReq({ ...req, cotizaciones: cotizaciones.map((c) => ({ ...c, elegida: c.id === id })) }); }
+    catch (e) { console.error(e); }
+  }
+  async function borrar(id) {
+    try { await onSaveReq({ ...req, cotizaciones: cotizaciones.filter((c) => c.id !== id) }); }
+    catch (e) { console.error(e); }
+  }
+  const montos = cotizaciones.map((c) => Number(c.monto) || 0);
+  const minMonto = montos.length ? Math.min(...montos) : null;
+  const ordenadas = cotizaciones.slice().sort((a, b) => (Number(a.monto) || 0) - (Number(b.monto) || 0));
+  return (
+    <div style={{ marginTop: "12px", padding: "10px", borderRadius: "6px", background: COLORS.bg, border: `1px solid ${COLORS.border || "#2a3f34"}` }}>
+      <div style={{ fontSize: "11px", fontWeight: 700, color: COLORS.gold, marginBottom: "8px" }}>💲 Cotizaciones (pedir presupuesto)</div>
+      {cotizaciones.length === 0 && <div style={{ fontSize: "10px", color: COLORS.muted, marginBottom: "8px" }}>Todavía no hay cotizaciones. Pedí presupuesto a tus proveedores y cargalas acá para comparar y elegir.</div>}
+      {ordenadas.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", marginBottom: "10px" }}>
+          {ordenadas.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", flexWrap: "wrap", padding: "5px 0", borderTop: `1px solid ${COLORS.border || "#2a3f34"}` }}>
+              <span style={{ fontWeight: 700, color: COLORS.text, minWidth: "110px" }}>{c.proveedorNombre || "—"}</span>
+              <span style={{ fontWeight: 700, color: (Number(c.monto) || 0) === minMonto ? COLORS.verde : COLORS.text }}>
+                {fmtM(c.monto, c.moneda)}{(Number(c.monto) || 0) === minMonto && cotizaciones.length > 1 ? " · más barata" : ""}
+              </span>
+              {c.notas && <span style={{ color: COLORS.muted }}>· {c.notas}</span>}
+              <span style={{ color: COLORS.muted }}>· {c.fecha}</span>
+              {c.elegida && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: `${COLORS.gold}22`, color: COLORS.gold }}>⭐ elegida</span>}
+              <span style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
+                {!c.elegida && <button style={S.btn("ghost", true)} onClick={() => elegir(c.id)}>Elegir</button>}
+                <button style={S.btn("red", true)} onClick={() => borrar(c.id)}>✕</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+        <select value={provId} onChange={(e) => setProvId(e.target.value)} style={{ ...S.input, maxWidth: "170px" }}>
+          <option value="">Proveedor...</option>
+          {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+        <input style={{ ...S.input, maxWidth: "110px" }} type="number" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="monto" />
+        <select value={moneda} onChange={(e) => setMoneda(e.target.value)} style={{ ...S.input, maxWidth: "80px" }}>
+          <option value="ARS">ARS</option>
+          <option value="USD">USD</option>
+        </select>
+        <input style={{ ...S.input, maxWidth: "150px" }} value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="notas (opcional)" />
+        <button style={{ ...S.btn("gold", true), opacity: (provId && Number(monto) > 0) ? 1 : 0.5 }} disabled={!(provId && Number(monto) > 0) || guardando} onClick={agregar}>
+          {guardando ? "..." : "+ Cotización"}
+        </button>
+      </div>
+      {proveedores.length === 0 && <div style={{ fontSize: "10px", color: COLORS.muted, marginTop: "6px" }}>No hay proveedores cargados. Cargá uno en la solapa Proveedores.</div>}
+    </div>
+  );
+}
+
+function BloqueDespacho({ req, proveedores, onCrearOrden }) {
+  const elegida = (req.cotizaciones || []).find((c) => c.elegida);
+  const [seleccion, setSeleccion] = useState(new Set());
+  const [provId, setProvId] = useState(elegida?.proveedorId || "");
   const [creando, setCreando] = useState(false);
 
   const items = Array.isArray(req.items) ? req.items : [];
@@ -361,7 +439,7 @@ function BloqueDespacho({ req, proveedores, onCrearOrden }) {
   );
 }
 
-function ListaOrdenes({ ordenesCompra }) {
+function ListaOrdenes({ ordenesCompra, onRecibir }) {
   const ordenes = (ordenesCompra || []).slice().sort((a, b) => (a.id < b.id ? -1 : 1));
   if (ordenes.length === 0) {
     return (
@@ -380,9 +458,21 @@ function ListaOrdenes({ ordenesCompra }) {
               <span style={{ fontWeight: 800, color: COLORS.gold, fontSize: "14px" }}>{oc.id}</span>
               <span style={{ color: COLORS.text, fontSize: "12px" }}>{oc.proveedorNombre || "—"}</span>
               <span style={{ color: COLORS.muted, fontSize: "12px" }}>{oc.fecha || ""}</span>
-              <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: "6px", background: COLORS.subtle, color: COLORS.muted }}>{oc.estado || "abierta"}</span>
+              {(() => {
+                const recibida = oc.estado === "recibida";
+                return <span style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: "6px", background: recibida ? `${COLORS.verde}22` : `${COLORS.amarillo}22`, color: recibida ? COLORS.verde : COLORS.amarillo }}>{oc.estado || "abierta"}</span>;
+              })()}
+              {oc.fechaRecepcion && <span style={{ color: COLORS.muted, fontSize: "11px" }}>recibida {oc.fechaRecepcion}</span>}
               {oc.reqNumero != null && (
                 <span style={{ color: COLORS.muted, fontSize: "11px" }}>desde REQ N° {oc.reqNumero}</span>
+              )}
+              {onRecibir && (
+                <button
+                  style={{ ...S.btn(oc.estado === "recibida" ? "ghost" : "gold", true), marginLeft: "auto" }}
+                  onClick={() => onRecibir(oc, oc.estado !== "recibida")}
+                >
+                  {oc.estado === "recibida" ? "Marcar abierta" : "Marcar recibida"}
+                </button>
               )}
             </div>
             {items.length > 0 && (
@@ -420,6 +510,8 @@ function ListaReqs({
   ordenesCompra,
   proveedores,
   onCrearOrden,
+  onSaveReq,
+  onRecibir,
   BASE,
   onBack,
   onNewReq,
@@ -583,6 +675,7 @@ function ListaReqs({
                         </tbody>
                       </table>
                     )}
+                    <CotizacionesBloque req={r} proveedores={proveedores} onSaveReq={onSaveReq} />
                     <BloqueDespacho req={r} proveedores={proveedores} onCrearOrden={onCrearOrden} />
                   </div>
                 )}
@@ -593,7 +686,7 @@ function ListaReqs({
       )}
         </>
       )}
-      {subvista === "ordenes" && <ListaOrdenes ordenesCompra={ordenesCompra} />}
+      {subvista === "ordenes" && <ListaOrdenes ordenesCompra={ordenesCompra} onRecibir={onRecibir} />}
     </div>
   );
 }
@@ -1162,6 +1255,30 @@ export default function ComprasModule({ BASE = [] }) {
     }
   }
 
+  async function handleUpdateReq(reqActualizado) {
+    if (!activeProyecto) return;
+    const updated = proyectos.map((p) => {
+      if (p.id !== activeProyecto.id) return p;
+      const reqs = (p.reqs || []).map((rr) => (rr.id === reqActualizado.id ? reqActualizado : rr));
+      return { ...p, reqs };
+    });
+    await persistAll(updated);
+  }
+
+  async function handleRecibirOrden(oc, recibir) {
+    if (!activeProyecto || !oc) return;
+    const cambios = recibir
+      ? { estado: "recibida", fechaRecepcion: new Date().toISOString().slice(0, 10) }
+      : { estado: "abierta", fechaRecepcion: "" };
+    try {
+      await actualizarOrdenCompra(orgId, activeProyecto.id, oc.id, cambios);
+      const ocs = await getOrdenesCompra(orgId, activeProyecto.id);
+      setOrdenesCompra(ocs);
+    } catch (e) {
+      console.error("Compras: error marcando recepción", e);
+    }
+  }
+
   async function analizarConIA() {
     if (!activeProyecto) return;
     setAiError(null);
@@ -1257,6 +1374,8 @@ export default function ComprasModule({ BASE = [] }) {
             ordenesCompra={ordenesCompra}
             proveedores={proveedores}
             onCrearOrden={handleCrearOrden}
+            onSaveReq={handleUpdateReq}
+            onRecibir={handleRecibirOrden}
             BASE={BASE}
             onBack={() => {
               setView("obras");

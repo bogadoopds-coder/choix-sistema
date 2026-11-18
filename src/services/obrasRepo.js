@@ -236,6 +236,15 @@ export async function crearOrdenCompra(orgId, obraId, orden) {
   return id;
 }
 
+/**
+ * Actualiza campos de una orden de compra existente (ej: marcar recibida).
+ * cambios: objeto parcial que se mergea sobre la OC.
+ */
+export async function actualizarOrdenCompra(orgId, obraId, ocId, cambios) {
+  if (!orgId || !obraId || !ocId) throw new Error("actualizarOrdenCompra: faltan datos");
+  await setDoc(doc(db, "orgs", orgId, "obras", obraId, "ordenesCompra", ocId), cambios, { merge: true });
+}
+
 // ─── UOCRA (tarifas de mano de obra por org) ───────────────────────────────
 import { mergeUocraRates } from "../data/uocraRates";
 

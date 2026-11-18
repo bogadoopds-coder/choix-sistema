@@ -127,7 +127,7 @@ export default function FinancieroModule({ BASE = [] }) {
 
           {tab === "contratos" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
-              <div style={S.panel}>
+              <div style={{ ...S.panel, position: "sticky", top: "8px", alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflowY: "auto" }}>
                 <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
                   {editandoId ? "Editar contrato" : "Nuevo contrato"}
                 </div>
@@ -569,7 +569,7 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
-      <div style={S.panel}>
+      <div style={{ ...S.panel, position: "sticky", top: "8px", alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflowY: "auto" }}>
         <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
           {editandoId ? "Editar egreso" : "Nuevo egreso"}
         </div>
@@ -853,7 +853,7 @@ function TabIngresos({ orgId, devId, fmt }) {
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
-      <div style={S.panel}>
+      <div style={{ ...S.panel, position: "sticky", top: "8px", alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflowY: "auto" }}>
         <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
           {editandoId ? "Editar ingreso" : "Nuevo ingreso"}
         </div>
@@ -1226,7 +1226,7 @@ function TabAportantes({ orgId, devId }) {
   const cierra = Math.abs(totalPct - 100) < 0.001;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "16px", alignItems: "start" }}>
-      <div style={S.panel}>
+      <div style={{ ...S.panel, position: "sticky", top: "8px", alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflowY: "auto" }}>
         <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "10px", color: COLORS.text }}>
           {editandoId ? "Editar aportante" : "Nuevo aportante"}
         </div>

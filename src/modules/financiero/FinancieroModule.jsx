@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { COLORS, S } from "../../styles/theme";
+import InputMoneda from "../../components/InputMoneda";
 import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
 import { getDesarrollos, getClientes, getBoletos, getCuotas } from "../../services/desarrollosRepo";
@@ -141,7 +142,7 @@ export default function FinancieroModule({ BASE = [] }) {
                 <div style={{ display: "flex", gap: "8px" }}>
                   <div style={{ flex: 2 }}>
                     <label style={S.label}>Monto del contrato</label>
-                    <input style={S.input} type="number" value={form.montoTotal} onChange={(e) => set("montoTotal", e.target.value)} placeholder="0" />
+                    <InputMoneda style={S.input} value={form.montoTotal} onChange={(v) => set("montoTotal", v)} placeholder="0" />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label style={S.label}>Moneda</label>
@@ -596,7 +597,7 @@ function TabEgresos({ orgId, devId, contratos, fmt }) {
         <div style={{ display: "flex", gap: "8px" }}>
           <div style={{ flex: 2 }}>
             <label style={S.label}>Monto</label>
-            <input style={S.input} type="number" value={form.monto} onChange={(e) => set("monto", e.target.value)} placeholder="0" />
+            <InputMoneda style={S.input} value={form.monto} onChange={(v) => set("monto", v)} placeholder="0" />
           </div>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Moneda</label>
@@ -907,7 +908,7 @@ function TabIngresos({ orgId, devId, fmt }) {
         <div style={{ display: "flex", gap: "8px" }}>
           <div style={{ flex: 2 }}>
             <label style={S.label}>Monto</label>
-            <input style={S.input} type="number" value={form.monto} onChange={(e) => set("monto", e.target.value)} placeholder="0" />
+            <InputMoneda style={S.input} value={form.monto} onChange={(v) => set("monto", v)} placeholder="0" />
           </div>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Moneda</label>
@@ -1326,7 +1327,7 @@ function TabAportesCaja({ orgId, devId, fmt }) {
         <div style={{ display: "flex", gap: "8px" }}>
           <div style={{ flex: 2 }}>
             <label style={S.label}>Monto</label>
-            <input style={S.input} type="number" value={form.monto} onChange={(e) => set("monto", e.target.value)} placeholder="0" />
+            <InputMoneda style={S.input} value={form.monto} onChange={(v) => set("monto", v)} placeholder="0" />
           </div>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Moneda</label>

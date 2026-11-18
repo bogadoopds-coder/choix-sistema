@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { COLORS, S } from "../../styles/theme";
+import InputMoneda from "../../components/InputMoneda";
 import { useAuth } from "../../auth/AuthContext";
 import {
   getEntidades, saveEntidad, deleteEntidad,
@@ -240,7 +241,7 @@ function TabEmpleados({ orgId, entidades, empleados, onChange }) {
         <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
           <div style={{ flex: 2 }}>
             <label style={S.label}>Sueldo</label>
-            <input style={S.input} type="number" value={form.sueldo} onChange={(e) => set("sueldo", e.target.value)} placeholder="0" />
+            <InputMoneda style={S.input} value={form.sueldo} onChange={(v) => set("sueldo", v)} placeholder="0" />
           </div>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Moneda</label>
@@ -445,7 +446,7 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
             <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
               <div style={{ flex: 1 }}>
                 <label style={S.label}>Monto</label>
-                <input style={S.input} type="number" value={form.reparto[0].monto} onChange={(e) => setLinea(0, "monto", e.target.value)} placeholder="0" />
+                <InputMoneda style={S.input} value={form.reparto[0].monto} onChange={(v) => setLinea(0, "monto", v)} placeholder="0" />
               </div>
               <div style={{ flex: 1 }}>
                 <label style={S.label}>Quién puso</label>
@@ -472,7 +473,7 @@ function TabGastos({ orgId, entidades, gastos, nombreEnt, onChange }) {
                     <option value="">— Entidad —</option>
                     {entidades.map((ent) => <option key={ent.id} value={ent.id}>{ent.nombre}</option>)}
                   </select>
-                  <input style={{ ...S.input, flex: 1 }} type="number" value={l.monto} onChange={(e) => setLinea(i, "monto", e.target.value)} placeholder="monto" />
+                  <InputMoneda style={{ ...S.input, flex: 1 }} value={l.monto} onChange={(v) => setLinea(i, "monto", v)} placeholder="monto" />
                   {form.reparto.length > 1 && <button style={S.btn("red", true)} onClick={() => delLinea(i)}>✕</button>}
                 </div>
                 <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>

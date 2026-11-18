@@ -3,6 +3,7 @@ import { uid } from "../../utils/id";
 import { today } from "../../utils/date";
 import { ars } from "../../utils/format";
 import { COLORS, S } from "../../styles/theme";
+import InputMoneda from "../../components/InputMoneda";
 import { storage } from "../../services/storage";
 import { useAuth } from "../../auth/AuthContext";
 import { getObras, saveRequerimientos, getProveedores, saveProveedor, deleteProveedor, getOrdenesCompra, crearOrdenCompra, actualizarOrdenCompra } from "../../services/obrasRepo";
@@ -350,7 +351,7 @@ function CotizacionesBloque({ req, proveedores, onSaveReq }) {
           <option value="">Proveedor...</option>
           {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
-        <input style={{ ...S.input, maxWidth: "110px" }} type="number" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="monto" />
+        <InputMoneda style={{ ...S.input, maxWidth: "110px" }} value={monto} onChange={(v) => setMonto(v)} placeholder="monto" />
         <select value={moneda} onChange={(e) => setMoneda(e.target.value)} style={{ ...S.input, maxWidth: "80px" }}>
           <option value="ARS">ARS</option>
           <option value="USD">USD</option>
